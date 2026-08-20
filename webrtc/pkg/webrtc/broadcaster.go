@@ -27,14 +27,49 @@ func NewBroadcaster(iceServers []string) (*Broadcaster, error) {
 	}
 
 	mediaEngine := &webrtc.MediaEngine{}
-	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
-		return nil, fmt.Errorf("failed to register default codecs: %w", err)
+
+	// Register H.264 as primary video codec with payload type 96
+	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:     webrtc.MimeTypeH264,
+			ClockRate:    90000,
+			Channels:     0,
+			SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+			RTCPFeedback: []webrtc.RTCPFeedback{{Type: "nack"}, {Type: "nack", Parameter: "pli"}, {Type: "ccm", Parameter: "fir"}, {Type: "goog-remb"}},
+		},
+		PayloadType: 96,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		return nil, fmt.Errorf("failed to register h264 codec: %w", err)
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
+	// Register Opus as primary audio codec with payload type 111
+	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:     webrtc.MimeTypeOpus,
+			ClockRate:    48000,
+			Channels:     2,
+			SDPFmtpLine:  "minptime=10;useinbandfec=1",
+			RTCPFeedback: nil,
+		},
+		PayloadType: 111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, fmt.Errorf("failed to register opus codec: %w", err)
+	}
+
+	settingEngine := webrtc.SettingEngine{}
+	_ = settingEngine.SetEphemeralUDPPortRange(50000, 50050)
+
+	api := webrtc.NewAPI(
+		webrtc.WithMediaEngine(mediaEngine),
+		webrtc.WithSettingEngine(settingEngine),
+	)
 
 	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
+		webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeH264,
+			ClockRate:   90000,
+			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+		},
 		"video",
 		"webrtc-stream",
 	)
@@ -43,7 +78,11 @@ func NewBroadcaster(iceServers []string) (*Broadcaster, error) {
 	}
 
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
+		webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeOpus,
+			ClockRate: 48000,
+			Channels:  2,
+		},
 		"audio",
 		"webrtc-stream",
 	)
@@ -81,15 +120,34 @@ func (b *Broadcaster) HandleOffer(offer webrtc.SessionDescription) (*webrtc.Sess
 	b.peerConnections[peerID] = pc
 	b.mu.Unlock()
 
-	// Add tracks to PeerConnection
-	if _, err := pc.AddTrack(b.videoTrack); err != nil {
+	// Add tracks to PeerConnection & read RTCP feedback in background
+	videoSender, err := pc.AddTrack(b.videoTrack)
+	if err != nil {
 		pc.Close()
 		return nil, fmt.Errorf("failed to add video track: %w", err)
 	}
-	if _, err := pc.AddTrack(b.audioTrack); err != nil {
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			if _, _, err := videoSender.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	audioSender, err := pc.AddTrack(b.audioTrack)
+	if err != nil {
 		pc.Close()
 		return nil, fmt.Errorf("failed to add audio track: %w", err)
 	}
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			if _, _, err := audioSender.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
@@ -124,10 +182,12 @@ func (b *Broadcaster) HandleOffer(offer webrtc.SessionDescription) (*webrtc.Sess
 }
 
 func (b *Broadcaster) WriteVideoRTP(pkt *rtp.Packet) error {
+	pkt.Header.PayloadType = 96
 	return b.videoTrack.WriteRTP(pkt)
 }
 
 func (b *Broadcaster) WriteAudioRTP(pkt *rtp.Packet) error {
+	pkt.Header.PayloadType = 111
 	return b.audioTrack.WriteRTP(pkt)
 }
 

@@ -69,7 +69,7 @@ func (r *Runner) buildGstArgs() []string {
 		"bframes=0",
 		"sliced-threads=true",
 		"byte-stream=true",
-		"intra-refresh=true",
+		"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		"!", "rtph264pay",
 		"config-interval=1",
 		"pt=96",
