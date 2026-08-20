@@ -1,0 +1,34 @@
+services:
+  streamer:
+    build: .
+    container_name: hls-streamer
+    restart: unless-stopped
+    user: "1000:1000"
+    ipc: host
+    ports:
+      - "8080:8080"
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      - PIPEWIRE_RUNTIME_DIR=/run/user/1000
+      - HLS_DIR=/tmp/hls
+      - PORT=8080
+      - FRAMERATE=${FRAMERATE:-30}
+      - VIDEO_BITRATE=${VIDEO_BITRATE:-6000k}
+      - HLS_TIME=${HLS_TIME:-2}
+      - HLS_LIST_SIZE=${HLS_LIST_SIZE:-5}
+      - AUDIO_BLACKLIST=${AUDIO_BLACKLIST:-discord,Discord,vesktop,webcord,slack,zoom,teams}
+      - INCLUDE_MIC=${INCLUDE_MIC:-false}
+    volumes:
+      - /run/user/1000/bus:/run/user/1000/bus
+      - /run/user/1000/pipewire-0:/run/user/1000/pipewire-0
+      - /run/user/1000/pulse:/run/user/1000/pulse
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: hls-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - streamer

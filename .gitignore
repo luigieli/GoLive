@@ -1,0 +1,26 @@
+# Secrets & Environment
+.env
+*.key
+*.pem
+
+# Go build artifacts
+/bin/
+streamer
+*.exe
+*.test
+*.prof
+
+# HLS runtime segments & playlists
+/hls/
+*.ts
+*.m3u8
+*.tmp
+
+# Node / Playwright
+node_modules/
+package-lock.json
+
+# IDE / System
+.DS_Store
+*.swp
+*~
