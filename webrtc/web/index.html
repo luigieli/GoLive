@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚡ Live WebRTC Screen Stream (&lt;150ms)</title>
+    <title>⚡ Live Screen Stream (<150ms WebRTC)</title>
     <style>
         :root {
             --bg-primary: #0a0c10;
             --bg-card: rgba(18, 22, 34, 0.85);
             --accent-cyan: #00e5ff;
             --accent-green: #00e676;
+            --accent-red: #ff3366;
             --text-primary: #f0f4f8;
             --text-secondary: #8c9ba5;
         }
@@ -29,7 +30,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 16px;
         }
 
         .container {
@@ -37,14 +38,14 @@
             max-width: 1300px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
         }
 
         .header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 16px;
+            padding: 12px 20px;
             background: var(--bg-card);
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.08);
@@ -87,7 +88,7 @@
         .stats-badge {
             background: rgba(0, 229, 255, 0.1);
             color: var(--accent-cyan);
-            padding: 4px 12px;
+            padding: 6px 14px;
             border-radius: 8px;
             font-size: 0.85rem;
             font-family: monospace;
@@ -106,12 +107,14 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
         }
 
         video {
             width: 100%;
             height: 100%;
             object-fit: contain;
+            background: #000;
         }
 
         .overlay-msg {
@@ -119,10 +122,15 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 12px;
+            gap: 14px;
             color: var(--text-secondary);
             font-size: 1.1rem;
-            pointer-events: none;
+            text-align: center;
+            padding: 20px;
+            background: rgba(10, 12, 16, 0.85);
+            border-radius: 16px;
+            backdrop-filter: blur(8px);
+            z-index: 10;
         }
 
         .spinner {
@@ -177,14 +185,15 @@
         .unmute-banner {
             position: absolute;
             bottom: 24px;
-            background: rgba(0, 229, 255, 0.9);
+            background: rgba(0, 229, 255, 0.95);
             color: #000;
-            font-weight: 600;
-            padding: 10px 20px;
+            font-weight: 700;
+            padding: 12px 24px;
             border-radius: 30px;
             cursor: pointer;
-            box-shadow: 0 8px 25px rgba(0, 229, 255, 0.4);
+            box-shadow: 0 8px 30px rgba(0, 229, 255, 0.5);
             transition: transform 0.2s ease;
+            z-index: 20;
         }
 
         .unmute-banner:hover {
@@ -196,30 +205,30 @@
     <div class="container">
         <div class="header">
             <div class="title-group">
-                <h2>🖥️ Live Screen & Audio</h2>
+                <h2>🖥️ Live Screen Stream</h2>
                 <div class="live-badge" id="liveBadge">
-                    <span class="live-dot"></span>
+                    <span class="live-dot" id="liveDot"></span>
                     <span id="statusText">Connecting WebRTC...</span>
                 </div>
             </div>
-            <div class="stats-badge" id="statsText">Latency: &lt;100ms | WebRTC</div>
+            <div class="stats-badge" id="statsText">Mode: ⚡ WebRTC (&lt;150ms)</div>
         </div>
 
-        <div class="video-wrapper">
+        <div class="video-wrapper" id="videoContainer">
             <video id="remoteVideo" autoplay playsinline muted></video>
             <div class="overlay-msg" id="loadingOverlay">
-                <div class="spinner"></div>
-                <span>Negotiating Ultra-Low Latency PeerConnection...</span>
+                <div class="spinner" id="spinner"></div>
+                <span id="loadingMsg">Establishing Ultra-Low Latency PeerConnection...</span>
             </div>
             <div class="unmute-banner" id="unmuteBanner" style="display: none;">
-                🔊 Click to Unmute Audio
+                🔊 Click Anywhere to Unmute Audio
             </div>
         </div>
 
         <div class="controls">
             <div class="btn-group">
-                <button id="toggleAudioBtn">🔊 Unmute</button>
-                <button id="reconnectBtn">🔄 Reconnect</button>
+                <button id="toggleAudioBtn">🔊 Unmute Audio</button>
+                <button id="reconnectBtn">🔄 Reconnect Stream</button>
             </div>
             <div class="btn-group">
                 <button id="fullscreenBtn">⛶ Fullscreen</button>
@@ -229,57 +238,95 @@
 
     <script>
         const video = document.getElementById('remoteVideo');
+        const videoContainer = document.getElementById('videoContainer');
         const statusText = document.getElementById('statusText');
         const statsText = document.getElementById('statsText');
         const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingMsg = document.getElementById('loadingMsg');
         const unmuteBanner = document.getElementById('unmuteBanner');
         const toggleAudioBtn = document.getElementById('toggleAudioBtn');
         const reconnectBtn = document.getElementById('reconnectBtn');
         const fullscreenBtn = document.getElementById('fullscreenBtn');
 
         let pc = null;
+        let retryCount = 0;
 
         async function startWebRTC() {
             if (pc) {
-                pc.close();
+                try { pc.close(); } catch(e) {}
             }
 
             loadingOverlay.style.display = 'flex';
+            loadingMsg.innerText = 'Connecting to Streamer via WebRTC...';
             statusText.innerText = 'Connecting...';
 
             pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ],
+                iceCandidatePoolSize: 10
             });
 
+            // Inbound Track handler
             pc.ontrack = (event) => {
-                if (video.srcObject !== event.streams[0]) {
-                    video.srcObject = event.streams[0];
-                    loadingOverlay.style.display = 'none';
-                    statusText.innerText = 'LIVE (WebRTC)';
+                console.log('[WebRTC] Received media track:', event.track.kind);
+                let stream = (event.streams && event.streams[0]) ? event.streams[0] : null;
+                if (!stream) {
+                    if (!video.srcObject) {
+                        video.srcObject = new MediaStream();
+                    }
+                    video.srcObject.addTrack(event.track);
+                } else if (video.srcObject !== stream) {
+                    video.srcObject = stream;
+                }
+
+                video.play().catch(err => {
+                    console.log('[WebRTC] Autoplay waiting for user interaction:', err);
+                });
+
+                loadingOverlay.style.display = 'none';
+                statusText.innerText = 'LIVE (WebRTC)';
+                if (video.muted) {
+                    unmuteBanner.style.display = 'block';
                 }
             };
 
-            pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'connected') {
+            pc.oniceconnectionstatechange = () => {
+                console.log('[WebRTC] ICE Connection State:', pc.iceConnectionState);
+                if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
                     statusText.innerText = 'LIVE (WebRTC)';
                     loadingOverlay.style.display = 'none';
-                } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                    statusText.innerText = 'Disconnected';
+                    retryCount = 0;
+                } else if (pc.iceConnectionState === 'checking') {
+                    statusText.innerText = 'Negotiating (ICE)...';
+                } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                    statusText.innerText = 'Connection Lost (Reconnecting...)';
+                    loadingOverlay.style.display = 'flex';
+                    loadingMsg.innerText = 'Stream connection interrupted. Reconnecting...';
                     setTimeout(startWebRTC, 2000);
                 }
             };
 
-            // Request Video and Audio Transceivers
+            pc.onconnectionstatechange = () => {
+                console.log('[WebRTC] Connection State:', pc.connectionState);
+                if (pc.connectionState === 'connected') {
+                    statusText.innerText = 'LIVE (WebRTC)';
+                    loadingOverlay.style.display = 'none';
+                }
+            };
+
+            // Transceivers for receive-only
             pc.addTransceiver('video', { direction: 'recvonly' });
             pc.addTransceiver('audio', { direction: 'recvonly' });
 
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-
             try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
                 const res = await fetch('/api/webrtc/offer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -287,54 +334,65 @@
                 });
 
                 if (!res.ok) {
-                    throw new Error(`Server returned ${res.status}`);
+                    throw new Error(`Server returned status ${res.status}`);
                 }
 
                 const answer = await res.json();
                 await pc.setRemoteDescription(new RTCSessionDescription(answer));
             } catch (err) {
-                console.error('[WebRTC] Signaling error:', err);
-                statusText.innerText = 'Signaling Error (Retrying...)';
-                setTimeout(startWebRTC, 3000);
+                console.error('[WebRTC] Error during offer/answer exchange:', err);
+                statusText.innerText = 'Signaling Error';
+                loadingMsg.innerText = 'Waiting for streamer to start broadcast...';
+                retryCount++;
+                setTimeout(startWebRTC, Math.min(retryCount * 2000, 6000));
             }
         }
 
-        // Audio controls
-        function toggleAudio() {
-            video.muted = !video.muted;
-            if (video.muted) {
-                toggleAudioBtn.innerText = '🔇 Muted (Click to Unmute)';
-                unmuteBanner.style.display = 'block';
-            } else {
-                toggleAudioBtn.innerText = '🔊 Audio Playing';
-                unmuteBanner.style.display = 'none';
-            }
-        }
-
-        toggleAudioBtn.onclick = toggleAudio;
-        unmuteBanner.onclick = () => {
+        // Unmute and Audio logic
+        function unmute() {
             video.muted = false;
+            video.play().catch(() => {});
             toggleAudioBtn.innerText = '🔊 Audio Playing';
             unmuteBanner.style.display = 'none';
+        }
+
+        function mute() {
+            video.muted = true;
+            toggleAudioBtn.innerText = '🔇 Muted (Click to Unmute)';
+            unmuteBanner.style.display = 'block';
+        }
+
+        toggleAudioBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (video.muted) unmute(); else mute();
         };
 
-        video.onplay = () => {
+        unmuteBanner.onclick = (e) => {
+            e.stopPropagation();
+            unmute();
+        };
+
+        videoContainer.onclick = () => {
             if (video.muted) {
-                unmuteBanner.style.display = 'block';
+                unmute();
             }
         };
 
-        reconnectBtn.onclick = startWebRTC;
+        reconnectBtn.onclick = (e) => {
+            e.stopPropagation();
+            startWebRTC();
+        };
 
-        fullscreenBtn.onclick = () => {
+        fullscreenBtn.onclick = (e) => {
+            e.stopPropagation();
             if (!document.fullscreenElement) {
-                video.requestFullscreen().catch(err => alert(err.message));
+                videoContainer.requestFullscreen().catch(err => alert(err.message));
             } else {
                 document.exitFullscreen();
             }
         };
 
-        // Start WebRTC on load
+        // Start WebRTC connection
         startWebRTC();
     </script>
 </body>
