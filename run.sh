@@ -1,31 +1,22 @@
 #!/bin/bash
 set -e
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
 
-echo "======================================================="
-echo "   Go Wayland HLS Live Stream + Cloudflare Tunnel      "
-echo "======================================================="
+MODE="${1:-webrtc}"
 
-# Load .env if present
-if [ -f .env ]; then
-    set -a
-    source .env
-    set +a
-fi
-
-cleanup() {
-    echo ""
-    echo "[!] Stopping Docker streaming containers..."
-    docker compose down 2>/dev/null || true
-    exit 0
-}
-trap cleanup SIGINT SIGTERM EXIT
-
-echo "--> Building & Starting Go Streaming Stack inside Docker..."
-echo "    [Cloudflare Stream URL : https://stream.luigieli.com]"
-echo "    [Local Player URL      : http://localhost:8080]"
-echo ""
-
-docker compose up --build
+case "$MODE" in
+    hls)
+        echo "[*] Starting HLS Live Streamer..."
+        exec "$SCRIPT_DIR/hls/run.sh"
+        ;;
+    webrtc)
+        echo "[*] Starting Ultra-Low Latency WebRTC Streamer..."
+        exec "$SCRIPT_DIR/webrtc/run.sh"
+        ;;
+    *)
+        echo "Usage: ./run.sh [webrtc|hls]"
+        echo "  - webrtc : Ultra-low latency real-time streaming (<150ms delay) [Default]"
+        echo "  - hls    : Standard HTTP Live Streaming"
+        exit 1
+        ;;
+esac
