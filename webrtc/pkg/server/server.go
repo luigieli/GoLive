@@ -83,6 +83,9 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	indexPath := filepath.Join(s.webDir, "index.html")
 	if data, err := os.ReadFile(indexPath); err == nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 		return
@@ -95,6 +98,9 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
