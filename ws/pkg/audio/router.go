@@ -187,6 +187,18 @@ func (r *Router) syncRoutes() {
 			index = strings.TrimSpace(lines[0])
 		}
 
+		if index == "" {
+			continue
+		}
+
+		// CRITICAL FIX: Protect loopback stream from being moved into stream_sink.
+		// The loopback copies stream_sink.monitor -> physicalSink (headphones).
+		// Moving it to stream_sink creates an infinite recursive feedback loop.
+		if isLoopbackSinkInput(lines, r.loopbackModuleID) {
+			_ = exec.Command("pactl", "move-sink-input", index, r.physicalSink).Run()
+			continue
+		}
+
 		var props []string
 		for _, line := range lines {
 			if strings.Contains(line, "application.name =") ||
@@ -201,7 +213,7 @@ func (r *Router) syncRoutes() {
 			}
 		}
 
-		if index != "" && len(props) > 0 {
+		if len(props) > 0 {
 			isBlacklisted := false
 			for _, prop := range props {
 				if r.filter.IsBlacklisted(prop) {
@@ -219,6 +231,30 @@ func (r *Router) syncRoutes() {
 			}
 		}
 	}
+}
+
+func isLoopbackSinkInput(lines []string, loopbackModuleID string) bool {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if loopbackModuleID != "" && (strings.Contains(trimmed, "Owner Module: "+loopbackModuleID) ||
+			strings.Contains(trimmed, fmt.Sprintf("pulse.module.id = \"%s\"", loopbackModuleID)) ||
+			strings.Contains(trimmed, fmt.Sprintf("pulse.module.id = %s", loopbackModuleID))) {
+			return true
+		}
+		if strings.Contains(trimmed, "node.name =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+		if strings.Contains(trimmed, "media.name =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+		if strings.Contains(trimmed, "device.description =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+		if strings.Contains(trimmed, "module-stream-restore.id =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) Stop() {

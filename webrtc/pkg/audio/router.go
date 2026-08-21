@@ -182,12 +182,21 @@ func (r *Router) syncRoutes() {
 		}
 		lines := strings.Split(sec, "\n")
 		var index string
-		var appName string
 
 		if len(lines) > 0 {
 			index = strings.TrimSpace(lines[0])
 		}
 
+		if index == "" {
+			continue
+		}
+
+		if isLoopbackSinkInput(lines, r.loopbackModuleID) {
+			_ = exec.Command("pactl", "move-sink-input", index, r.physicalSink).Run()
+			continue
+		}
+
+		var appName string
 		for _, line := range lines {
 			if strings.Contains(line, "application.name =") || strings.Contains(line, "application.process.binary =") {
 				parts := strings.Split(line, "=")
@@ -197,17 +206,40 @@ func (r *Router) syncRoutes() {
 			}
 		}
 
-		if index != "" && appName != "" {
+		if appName != "" {
 			if r.filter.IsBlacklisted(appName) {
 				// Blacklisted app (e.g. Discord, Slack) -> Route directly to physical speakers/headphones
 				_ = exec.Command("pactl", "move-sink-input", index, r.physicalSink).Run()
 			} else {
 				// Non-blacklisted app -> Ensure it plays into stream_sink if not already
-				// (Loopback automatically copies stream_sink to physical speakers for the user)
 				_ = exec.Command("pactl", "move-sink-input", index, r.sinkName).Run()
 			}
 		}
 	}
+}
+
+func isLoopbackSinkInput(lines []string, loopbackModuleID string) bool {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if loopbackModuleID != "" && (strings.Contains(trimmed, "Owner Module: "+loopbackModuleID) ||
+			strings.Contains(trimmed, fmt.Sprintf("pulse.module.id = \"%s\"", loopbackModuleID)) ||
+			strings.Contains(trimmed, fmt.Sprintf("pulse.module.id = %s", loopbackModuleID))) {
+			return true
+		}
+		if strings.Contains(trimmed, "node.name =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+		if strings.Contains(trimmed, "media.name =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+		if strings.Contains(trimmed, "device.description =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+		if strings.Contains(trimmed, "module-stream-restore.id =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) Stop() {

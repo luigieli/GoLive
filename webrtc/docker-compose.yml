@@ -32,6 +32,6 @@ services:
     restart: unless-stopped
     env_file:
       - ../.env
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: ${CLOUDFLARE_TUNNEL_COMMAND:-tunnel --no-autoupdate --url http://streamer:8080}
     depends_on:
       - streamer
