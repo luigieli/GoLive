@@ -1,35 +1,42 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-echo "======================================================="
-echo "   ⚡ Go Wayland WebRTC Streamer + Cloudflare Tunnel  "
-echo "======================================================="
-
-# Load .env if present in root or current dir
-if [ -f ../.env ]; then
+if [ -f "$SCRIPT_DIR/../.env" ]; then
     set -a
-    source ../.env
+    source "$SCRIPT_DIR/../.env"
     set +a
-elif [ -f .env ]; then
+elif [ -f "$SCRIPT_DIR/.env" ]; then
     set -a
-    source .env
+    source "$SCRIPT_DIR/.env"
     set +a
 fi
 
-cleanup() {
-    echo ""
-    echo "[!] Stopping Docker WebRTC streaming containers..."
-    docker compose down 2>/dev/null || true
-    exit 0
-}
-trap cleanup SIGINT SIGTERM EXIT
+TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "your_cloudflare_tunnel_token_here" ] && [ "$TOKEN" != "your_token_here" ]; then
+    export CLOUDFLARE_TUNNEL_COMMAND="tunnel --no-autoupdate run --token ${TOKEN}"
+    TUNNEL_MODE="Custom Token Tunnel (${DOMAIN:-Configured Cloudflare Domain})"
+else
+    export CLOUDFLARE_TUNNEL_COMMAND="tunnel --no-autoupdate --url http://streamer:8080"
+    TUNNEL_MODE="Automatic Quick Tunnel (TryCloudflare - Free / No Account Needed)"
+fi
 
-echo "--> Building & Starting WebRTC Streaming Stack inside Docker..."
-echo "    [Cloudflare Stream URL : https://stream.luigieli.com]"
-echo "    [Local Player URL      : http://localhost:8080]"
+echo "======================================================="
+echo "   ⚡ Go Wayland WebRTC Streamer + Cloudflare Tunnel"
+echo "======================================================="
+echo "--> Tunnel Mode: ${TUNNEL_MODE}"
+echo "    [Local Player URL : http://localhost:8080]"
+echo "    [Cloudflare URL   : Auto-generated trycloudflare.com URL will be logged below]"
 echo ""
 
+cleanup() {
+    echo -e "\n[!] Stopping Docker WebRTC streaming containers..."
+    cd "$SCRIPT_DIR" && docker compose down
+    exit 0
+}
+
+trap cleanup INT TERM
+
+cd "$SCRIPT_DIR"
 docker compose up --build
+

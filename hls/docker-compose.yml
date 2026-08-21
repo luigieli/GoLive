@@ -29,6 +29,8 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: hls-cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      - ../.env
+    command: ${CLOUDFLARE_TUNNEL_COMMAND:-tunnel --no-autoupdate --url http://streamer:8080}
     depends_on:
       - streamer
