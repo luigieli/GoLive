@@ -1,0 +1,179 @@
+> **⚠️ DISCLAIMER:** Discord live screensharing was restricted/blocked in Brazil, so I built my own self-hosted, ultra-low latency, native Wayland screen & audio streaming stack.
+
+# 🖥️ Wayland Ultra-Low Latency Live Streamer
+
+A high-performance, containerized screen and audio streaming solution engineered specifically for Linux **Wayland** desktops (Hyprland, Sway, GNOME, KDE Plasma). Delivers **sub-200ms ultra-low latency** live video with intelligent per-application audio isolation and zero port-forwarding via Cloudflare Tunnels.
+
+---
+
+## ⚡ Highlights
+
+- **Ultra-Low Latency (<200ms)**: Stream live screen and game audio with virtually zero perceptible delay using MPEG-TS over WebSocket and WebRTC.
+- **Native Wayland Screen Capture**: Directly interfaces with `xdg-desktop-portal` and PipeWire via D-Bus for zero-overhead hardware capture.
+- **Smart Audio Router & Voice Isolation**:
+  - Automatically isolates desktop and game audio.
+  - Blacklists voice chat applications (**Discord, Vesktop, Slack, Zoom, Teams**) so voice call participants do not hear themselves echoing.
+  - Generates continuous silence-clock timestamps to prevent muxer buffer deadlocks when no audio is playing.
+- **Modern Web Player**:
+  - Custom HTML5 player powered by `mpegts.js`.
+  - Built-in interactive **volume slider** (0–100%) with volume memory (`localStorage`).
+  - One-click mute/unmute and dynamic speaker indicators (`🔊`, `🔉`, `🔈`, `🔇`).
+  - Aggressive buffer synchronization to maintain the live edge without stuttering.
+- **Global Public Access (Cloudflare Tunnel)**:
+  - Accessible securely over public HTTPS (`wss://`) without exposing open router ports or configuring complex NAT traversal.
+- **Three Modular Streaming Backends**:
+  1. `ws/` **(Default & Recommended)**: WebSocket MPEG-TS streaming with full Cloudflare Tunnel proxying and universal browser support.
+  2. `webrtc/`: Direct P2P WebRTC broadcast powered by Pion Go (<150ms delay).
+  3. `hls/`: Low-Latency HLS (LL-HLS) fallback for maximum compatibility.
+
+---
+
+## 🏗️ Architecture
+
+```
+[ Wayland Compositor (Hyprland / GNOME / KDE) ]
+                       │
+             xdg-desktop-portal (D-Bus)
+                       │
+                 PipeWire Stream
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Docker Container                      │
+│                                                         │
+│  [PipeWire / PulseAudio] ──► [Go Audio Router & Filter] │
+│                                  │ (Isolate Discord)    │
+│  [GStreamer x264enc] ◄───────────┘                      │
+│           │                                             │
+│      MPEG-TS Muxer (188-byte aligned)                   │
+│           │                                             │
+│      Go WebSocket Hub (Non-blocking per-client pump)    │
+│           │                                             │
+└───────────┼─────────────────────────────────────────────┘
+            │
+            ├──────────────► Local Player (http://localhost:8080)
+            │
+    [Cloudflare Tunnel (cloudflared)]
+            │
+            ▼
+    Public Web Viewers (https://stream.yourdomain.com)
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Prerequisites
+
+- **Linux** with **Wayland** (Hyprland, Sway, GNOME Wayland, KDE Plasma Wayland).
+- **PipeWire** & **WirePlumber** (or `pipewire-media-session`).
+- **Docker** & **Docker Compose**.
+- (Optional) **Cloudflare Tunnel Token** for public sharing.
+
+### 2. Configuration
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to configure your settings:
+
+```bash
+# Cloudflare Tunnel Token (optional, for public URL)
+CLOUDFLARE_TUNNEL_TOKEN=your_token_here
+
+# Apps to filter out from stream (prevents echo in Discord calls)
+AUDIO_BLACKLIST=discord,Discord,vesktop,webcord,slack,zoom,teams
+
+# Include microphone (false = only desktop/game audio)
+INCLUDE_MIC=false
+
+# Video output settings
+FRAMERATE=60
+TARGET_WIDTH=1920
+TARGET_HEIGHT=1080
+VIDEO_BITRATE=6000k
+```
+
+### 3. Launch Streamer
+
+To start the default ultra-low latency WebSocket streamer:
+
+```bash
+./run.sh
+```
+
+When prompted on your desktop, select the screen or window you want to share.
+
+### 4. Watch the Stream
+
+- **Local Network**: `http://localhost:8080`
+- **Public Domain**: `https://stream.yourdomain.com` (configured in your Cloudflare Zero Trust dashboard)
+
+---
+
+## 🎛️ Running Specific Streaming Engines
+
+You can launch any of the three independent streaming implementations:
+
+| Engine | Launcher Script | Protocol | Latency | Cloudflare Tunnel Support |
+| :--- | :--- | :--- | :--- | :--- |
+| **WebSocket (Recommended)** | `./run_ws.sh` | MPEG-TS over WS | **~200ms** | ✅ Full Support |
+| **WebRTC** | `./run_webrtc.sh` | WebRTC (Pion) | **~150ms** | Direct / Local / P2P |
+| **Low-Latency HLS** | `./run_hls.sh` | HLS (.m3u8) | **~2-3s** | ✅ Full Support |
+
+---
+
+## 🔈 Audio Isolation & Voice Routing
+
+The built-in audio router manages PulseAudio / PipeWire sink inputs dynamically:
+
+1. Creates a dedicated virtual `stream_sink`.
+2. Sets up a loopback from `stream_sink` to your physical headphones so you hear all desktop audio normally.
+3. Automatically scans all active audio streams every second:
+   - **Games / YouTube / Music / System Sounds** $\rightarrow$ Routed into `stream_sink` (streamed to viewers).
+   - **Discord / Slack / Zoom Voice Calls** $\rightarrow$ Kept strictly on your physical headphones (excluded from stream).
+
+> **Tip:** If you *do* want Discord audio to be heard by viewers, simply set `AUDIO_BLACKLIST=` (empty) in your `.env`.
+
+---
+
+## 🛠️ Project Structure
+
+```
+.
+├── README.md               # Project documentation & disclaimer
+├── run.sh                  # Default streamer launcher (runs WebSocket streamer)
+├── run_ws.sh               # WebSocket streamer launcher
+├── run_webrtc.sh           # WebRTC streamer launcher
+├── run_hls.sh              # HLS streamer launcher
+├── .env.example            # Example configuration template
+├── .gitignore              # Git ignore rules for secrets and temp files
+│
+├── ws/                     # [MPEG-TS over WebSocket Streamer]
+│   ├── cmd/streamer/       # Application entry point
+│   ├── pkg/
+│   │   ├── audio/          # PulseAudio / PipeWire router & blacklist filter
+│   │   ├── config/         # Environment variable parser
+│   │   ├── pipeline/       # GStreamer pipeline with silence-clock mixer
+│   │   ├── portal/         # Wayland XDG Desktop Portal D-Bus client
+│   │   └── server/         # Go HTTP & WebSocket Hub (non-blocking pump)
+│   ├── web/                # Web player UI (HTML5 + mpegts.js + volume slider)
+│   └── docker-compose.yml  # Container orchestration & Cloudflare Tunnel
+│
+├── webrtc/                 # [WebRTC Streamer]
+│   ├── pkg/webrtc/         # Pion WebRTC broadcaster and track injector
+│   └── web/                # WebRTC player with SDP HTTP signaling
+│
+└── hls/                    # [LL-HLS Streamer]
+    ├── nginx.conf          # Low-latency HLS caching & CORS configuration
+    └── web/                # Hls.js web player
+```
+
+---
+
+## 📄 License
+
+MIT License. Feel free to modify, host, and distribute.
