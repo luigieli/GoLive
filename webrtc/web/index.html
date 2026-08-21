@@ -158,15 +158,69 @@
 
         .btn-group {
             display: flex;
+            gap: 12px;
             align-items: center;
-            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .volume-control input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 90px;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.2);
+            outline: none;
+            cursor: pointer;
+        }
+
+        .volume-control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .volume-control input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .volume-control input[type="range"]::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            cursor: pointer;
+            border: none;
+        }
+
+        .volume-value {
+            font-size: 0.8rem;
+            color: #a0aec0;
+            min-width: 32px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
         }
 
         button {
             background: rgba(255, 255, 255, 0.08);
-            color: var(--text-primary);
             border: 1px solid rgba(255, 255, 255, 0.15);
-            padding: 8px 16px;
+            color: #fff;
+            padding: 10px 18px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 500;
@@ -228,7 +282,12 @@
         <div class="controls">
             <div class="btn-group">
                 <button id="toggleAudioBtn">🔊 Unmute Audio</button>
-                <button id="reconnectBtn">🔄 Reconnect Stream</button>
+                <div class="volume-control">
+                    <span id="volumeIcon" style="cursor:pointer;" title="Mute/Unmute">🔊</span>
+                    <input type="range" id="volumeSlider" min="0" max="1" step="0.02" value="1" title="Volume">
+                    <span id="volumeValue" class="volume-value">100%</span>
+                </div>
+                <button id="reconnectBtn">🔄 Reconnect</button>
             </div>
             <div class="btn-group">
                 <button id="fullscreenBtn">⛶ Fullscreen</button>
@@ -349,24 +408,75 @@
             }
         }
 
+        const volumeSlider = document.getElementById('volumeSlider');
+        const volumeValue = document.getElementById('volumeValue');
+        const volumeIcon = document.getElementById('volumeIcon');
+
+        // Restore saved volume
+        try {
+            const savedVol = localStorage.getItem('stream_volume');
+            if (savedVol !== null) {
+                const vol = parseFloat(savedVol);
+                video.volume = vol;
+                volumeSlider.value = vol;
+            }
+        } catch(e) {}
+
+        function updateVolumeUI() {
+            if (video.muted || video.volume === 0) {
+                toggleAudioBtn.innerText = '🔊 Unmute Audio';
+                volumeIcon.innerText = '🔇';
+                volumeValue.innerText = '0%';
+            } else {
+                toggleAudioBtn.innerText = '🔇 Mute Audio';
+                const percent = Math.round(video.volume * 100);
+                volumeValue.innerText = `${percent}%`;
+                if (video.volume > 0.5) volumeIcon.innerText = '🔊';
+                else if (video.volume > 0.15) volumeIcon.innerText = '🔉';
+                else volumeIcon.innerText = '🔈';
+            }
+        }
+
         // Unmute and Audio logic
         function unmute() {
             video.muted = false;
+            if (video.volume === 0) {
+                video.volume = 1.0;
+                volumeSlider.value = 1.0;
+            }
             video.play().catch(() => {});
-            toggleAudioBtn.innerText = '🔊 Audio Playing';
             unmuteBanner.style.display = 'none';
+            updateVolumeUI();
         }
 
         function mute() {
             video.muted = true;
-            toggleAudioBtn.innerText = '🔇 Muted (Click to Unmute)';
             unmuteBanner.style.display = 'block';
+            updateVolumeUI();
         }
 
         toggleAudioBtn.onclick = (e) => {
             e.stopPropagation();
             if (video.muted) unmute(); else mute();
         };
+
+        volumeIcon.onclick = (e) => {
+            e.stopPropagation();
+            if (video.muted) unmute(); else mute();
+        };
+
+        volumeSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            video.volume = val;
+            if (val > 0) {
+                video.muted = false;
+                unmuteBanner.style.display = 'none';
+            } else {
+                video.muted = true;
+            }
+            updateVolumeUI();
+            try { localStorage.setItem('stream_volume', val); } catch(err) {}
+        });
 
         unmuteBanner.onclick = (e) => {
             e.stopPropagation();
