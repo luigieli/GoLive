@@ -73,7 +73,9 @@ func (r *Runner) buildGstArgs() []string {
 	switch strings.ToLower(r.opts.Encoder) {
 	case "cpu", "x264":
 		encoderElements = []string{
-			"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1", width, height, fps),
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d", width, height),
 			"!", "x264enc",
 			"tune=zerolatency",
 			"speed-preset=ultrafast",
@@ -87,7 +89,9 @@ func (r *Runner) buildGstArgs() []string {
 		}
 	case "nvenc":
 		encoderElements = []string{
-			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", width, height, fps),
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d", width, height),
 			"!", "nvh264enc",
 			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
 			fmt.Sprintf("gop-size=%d", fps),
@@ -97,14 +101,24 @@ func (r *Runner) buildGstArgs() []string {
 		}
 	default: // "gpu", "vaapi", "auto"
 		encoderElements = []string{
-			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", width, height, fps),
+			"!", "videoconvert",
+			"!", "videorate",
+			"!", fmt.Sprintf("video/x-raw,framerate=%d/1", fps),
+			"!", "vaapipostproc", "scale-method=2", "format=nv12",
+			fmt.Sprintf("width=%d", width),
+			fmt.Sprintf("height=%d", height),
+			"!", fmt.Sprintf("video/x-raw(memory:VASurface),width=%d,height=%d,framerate=%d/1", width, height, fps),
 			"!", "vaapih264enc",
+			"aud=true",
 			"rate-control=cbr",
+			"cabac=true",
+			"dct8x8=true",
+			"quality-level=1",
 			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
 			fmt.Sprintf("keyframe-period=%d", fps),
 			"max-bframes=0",
 			"tune=none",
-			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+			"!", "video/x-h264,profile=high,stream-format=byte-stream",
 		}
 	}
 
@@ -118,9 +132,6 @@ func (r *Runner) buildGstArgs() []string {
 		"keepalive-time=33",
 		"always-copy=true",
 		"!", "queue", "max-size-buffers=3", "leaky=downstream",
-		"!", "videoconvert",
-		"!", "videoscale",
-		"!", "videorate", "drop-only=false", "skip-to-first=true",
 	}
 
 	args = append(args, encoderElements...)

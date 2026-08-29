@@ -73,8 +73,11 @@ func TestBuildGstArgsGPU(t *testing.T) {
 	if !strings.Contains(cmdStr, "vaapih264enc") {
 		t.Errorf("expected vaapih264enc in gpu gst args, got: %s", cmdStr)
 	}
-	if !strings.Contains(cmdStr, "format=NV12") {
-		t.Errorf("expected format=NV12 in gpu gst args, got: %s", cmdStr)
+	if !strings.Contains(cmdStr, "format=nv12") {
+		t.Errorf("expected format=nv12 in gpu gst args, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "vaapipostproc") {
+		t.Errorf("expected vaapipostproc in gpu gst args, got: %s", cmdStr)
 	}
 	if !strings.Contains(cmdStr, "rate-control=cbr") {
 		t.Errorf("expected rate-control=cbr in gpu gst args, got: %s", cmdStr)

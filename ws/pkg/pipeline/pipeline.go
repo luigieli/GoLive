@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -69,6 +70,9 @@ func (r *Runner) buildGstArgs() []string {
 	switch strings.ToLower(r.opts.Encoder) {
 	case "cpu", "x264":
 		encoderElements = []string{
+			"!", "videoconvert",
+			"!", "videoscale", "method=1",
+			"!", "videorate",
 			"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
 			"!", "x264enc",
 			"tune=zerolatency",
@@ -82,9 +86,15 @@ func (r *Runner) buildGstArgs() []string {
 			"sync-lookahead=0",
 			"byte-stream=true",
 			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+			"!", "h264parse", "config-interval=-1",
+			"!", "queue", "max-size-buffers=5", "leaky=downstream",
+			"!", "mux.",
 		}
 	case "nvenc":
 		encoderElements = []string{
+			"!", "videoconvert",
+			"!", "videoscale", "method=1",
+			"!", "videorate",
 			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
 			"!", "nvh264enc",
 			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
@@ -92,17 +102,33 @@ func (r *Runner) buildGstArgs() []string {
 			"rc-mode=cbr-ld-hq",
 			"zerolatency=true",
 			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+			"!", "h264parse", "config-interval=-1",
+			"!", "queue", "max-size-buffers=5", "leaky=downstream",
+			"!", "mux.",
 		}
 	default: // "gpu", "vaapi", "auto"
 		encoderElements = []string{
-			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
+			"!", "videoconvert",
+			"!", "videorate",
+			"!", fmt.Sprintf("video/x-raw,framerate=%d/1", fps),
+			"!", "vaapipostproc", "scale-method=2", "format=nv12",
+			fmt.Sprintf("width=%d", outWidth),
+			fmt.Sprintf("height=%d", outHeight),
+			"!", fmt.Sprintf("video/x-raw(memory:VASurface),width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
 			"!", "vaapih264enc",
+			"aud=true",
 			"rate-control=cbr",
+			"cabac=true",
+			"dct8x8=true",
+			"quality-level=1",
 			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
 			fmt.Sprintf("keyframe-period=%d", fps),
 			"max-bframes=0",
 			"tune=none",
-			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+			"!", "video/x-h264,profile=high,stream-format=byte-stream",
+			"!", "h264parse", "config-interval=1",
+			"!", "queue", "max-size-buffers=30", "max-size-time=0", "max-size-bytes=0",
+			"!", "mux.",
 		}
 	}
 
@@ -115,43 +141,30 @@ func (r *Runner) buildGstArgs() []string {
 		"do-timestamp=true",
 		"keepalive-time=16",
 		"always-copy=true",
+		"!", "video/x-raw",
 		"!", "queue", "max-size-buffers=3", "max-size-time=0", "max-size-bytes=0", "leaky=downstream",
-		"!", "videoconvert",
-		"!", "videoscale", "method=1",
-		"!", "videorate", "drop-only=false", "skip-to-first=true",
 	}
 
 	args = append(args, encoderElements...)
 	args = append(args,
-		"!", "h264parse",
-		"!", "queue", "max-size-buffers=5", "leaky=downstream",
-		"!", "mux.",
 
-		// Audio Mixer with Silence Fallback (Prevents Muxer Deadlock)
-		"audiomixer", "name=amix",
-		"!", "audioconvert",
-		"!", "audioresample",
-		"!", "avenc_aac", "bitrate=128000",
-		"!", "aacparse",
-		"!", "queue", "max-size-buffers=5", "leaky=downstream",
-		"!", "mux.",
-
-		// Silence Clock Source
-		"audiotestsrc", "is-live=true", "wave=silence", "volume=0.0",
-		"!", "audio/x-raw,format=S16LE,rate=48000,channels=2",
-		"!", "queue", "max-size-buffers=3", "leaky=downstream",
-		"!", "amix.",
-
-		// PulseAudio Source
+		// Direct PulseAudio Source -> AAC Audio Branch
 		"pulsesrc",
 		fmt.Sprintf("device=%s", r.opts.AudioSource),
 		"do-timestamp=true",
+		"provide-clock=false",
 		"!", "audio/x-raw,format=S16LE,rate=48000,channels=2",
-		"!", "queue", "max-size-buffers=5", "leaky=downstream",
-		"!", "amix.",
+		"!", "queue", "max-size-buffers=30",
+		"!", "audioconvert",
+		"!", "audioresample",
+		"!", "audiorate",
+		"!", "avenc_aac", "bitrate=192000",
+		"!", "aacparse",
+		"!", "queue", "max-size-buffers=30", "max-size-time=0", "max-size-bytes=0",
+		"!", "mux.",
 
 		// MPEG-TS Muxer
-		"mpegtsmux", "name=mux", "alignment=7",
+		"mpegtsmux", "name=mux", "alignment=7", "pat-interval=4500", "pmt-interval=4500", "pcr-interval=1800",
 		"!", "fdsink", "fd=1", "sync=false",
 	)
 
@@ -217,34 +230,42 @@ func (r *Runner) Stop() {
 
 func (r *Runner) readLoop(ctx context.Context) {
 	const packetSize = 188
-	const batchPackets = 348 // 65,424 bytes per chunk
-	targetSize := packetSize * batchPackets
+	const readBufSize = 65536
 
-	buf := make([]byte, targetSize*2)
-	offset := 0
+	reader := bufio.NewReaderSize(r.pipeReader, 1048576)
+	tsBuffer := make([]byte, 0, 131600)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			n, err := r.pipeReader.Read(buf[offset:])
+			buf := make([]byte, readBufSize)
+			n, err := reader.Read(buf)
 			if err != nil {
 				return
 			}
-			offset += n
+			if n > 0 {
+				tsBuffer = append(tsBuffer, buf[:n]...)
+				completePackets := len(tsBuffer) / packetSize
+				if completePackets > 0 {
+					bytesToSend := completePackets * packetSize
+					chunk := make([]byte, bytesToSend)
+					copy(chunk, tsBuffer[:bytesToSend])
 
-			completePackets := offset / packetSize
-			if completePackets > 0 {
-				bytesToSend := completePackets * packetSize
-				if r.hub != nil {
-					r.hub.Broadcast(buf[:bytesToSend])
+					if r.hub != nil {
+						r.hub.Broadcast(chunk)
+					}
+
+					remainder := len(tsBuffer) - bytesToSend
+					if remainder > 0 {
+						newBuf := make([]byte, remainder, 131600)
+						copy(newBuf, tsBuffer[bytesToSend:])
+						tsBuffer = newBuf
+					} else {
+						tsBuffer = tsBuffer[:0]
+					}
 				}
-				remainder := offset - bytesToSend
-				if remainder > 0 {
-					copy(buf, buf[bytesToSend:offset])
-				}
-				offset = remainder
 			}
 		}
 	}
