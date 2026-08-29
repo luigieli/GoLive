@@ -2,8 +2,15 @@ package server
 
 import (
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
 )
 
 type Client struct {
@@ -13,12 +20,30 @@ type Client struct {
 }
 
 func (c *Client) writePump() {
+	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		ticker.Stop()
 		_ = c.conn.Close()
 	}()
-	for message := range c.send {
-		if err := c.conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
-			return
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			if err := c.conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -28,6 +53,12 @@ func (c *Client) readPump() {
 		c.hub.unregister <- c
 		_ = c.conn.Close()
 	}()
+	c.conn.SetReadLimit(512)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 	for {
 		if _, _, err := c.conn.ReadMessage(); err != nil {
 			break
@@ -46,7 +77,7 @@ type Hub struct {
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte, 1024),
+		broadcast:  make(chan []byte, 4096),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
@@ -74,7 +105,7 @@ func (h *Hub) Run() {
 				select {
 				case client.send <- message:
 				default:
-					// Dropped packet if client is lagging, maintaining live <200ms latency
+					// Drop only if client queue is completely saturated (2048 chunks = ~130MB buffer)
 				}
 			}
 			h.mu.RUnlock()

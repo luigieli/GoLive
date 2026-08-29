@@ -10,8 +10,8 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  65536,
-	WriteBufferSize: 65536,
+	ReadBufferSize:  1048576,
+	WriteBufferSize: 1048576,
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins for Cloudflare Tunnel
 	},
@@ -64,7 +64,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	client := &Client{
 		hub:  s.hub,
 		conn: conn,
-		send: make(chan []byte, 256),
+		send: make(chan []byte, 2048),
 	}
 
 	s.hub.register <- client

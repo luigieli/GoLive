@@ -422,15 +422,27 @@
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${location.host}/ws`;
 
+            if (player) {
+                try {
+                    player.pause();
+                    player.unload();
+                    player.detachMediaElement();
+                    player.destroy();
+                } catch (e) {}
+                player = null;
+            }
+
             player = mpegts.createPlayer({
-                type: 'mse', // MPEG-TS over WebSocket
+                type: 'mpegts', // MPEG-TS over WebSocket
                 isLive: true,
                 url: wsUrl
             }, {
-                enableWorker: true,
+                enableWorker: false,
+                enableStashBuffer: true,
+                stashInitialSize: 128,
                 lazyLoad: false,
                 liveBufferLatencyChasing: true,
-                liveBufferLatencyMaxLatency: 1.0,
+                liveBufferLatencyMaxLatency: 1.5,
                 liveBufferLatencyMinRemain: 0.2,
                 autoCleanupSourceBuffer: true,
                 autoCleanupMaxBackwardDuration: 3,
@@ -447,10 +459,12 @@
 
             player.on(mpegts.Events.ERROR, (errorType, errorDetail, errorInfo) => {
                 console.error("MPEGTS Error:", errorType, errorDetail, errorInfo);
-                statusText.innerText = 'RECONNECTING';
-                loadingMsg.innerText = `Stream Error: ${errorDetail}. Reconnecting...`;
-                loadingOverlay.style.display = 'flex';
-                setTimeout(startPlayer, 2000);
+                if (errorType === mpegts.ErrorTypes.NETWORK_ERROR) {
+                    statusText.innerText = 'RECONNECTING';
+                    loadingMsg.innerText = `Network Error: ${errorDetail}. Reconnecting...`;
+                    loadingOverlay.style.display = 'flex';
+                    setTimeout(startPlayer, 2000);
+                }
             });
 
             player.on(mpegts.Events.METADATA_ARRIVED, () => {
