@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/streamer ./cmd/st
 # Runtime Stage
 FROM debian:bookworm-slim
 
-# Install FFmpeg, GStreamer PipeWire plugins, PulseAudio & DBus libraries
+# Install FFmpeg, GStreamer PipeWire plugins, VA-API drivers, PulseAudio & DBus libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
@@ -19,6 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-pipewire \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
+    gstreamer1.0-vaapi \
+    mesa-va-drivers \
+    libva2 \
+    libva-drm2 \
+    intel-media-va-driver \
+    vainfo \
     libpulse0 \
     pulseaudio-utils \
     dbus \

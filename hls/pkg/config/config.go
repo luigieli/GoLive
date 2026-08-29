@@ -12,18 +12,27 @@ type Config struct {
 	Port           int
 	Framerate      int
 	VideoBitrate   int
+	TargetWidth    int
+	TargetHeight   int
+	Encoder        string
+	CPUThreads     int
 	HLSTime        int
 	HLSListSize    int
 	IncludeMic     bool
 	AudioBlacklist []string
 	HLSDir         string
 	AudioSource    string
+	AudioRouting   bool
 }
 
 func Load() *Config {
 	port := getEnvInt("PORT", 8080)
 	framerate := getEnvInt("FRAMERATE", 30)
 	bitrate := parseBitrate(getEnvString("VIDEO_BITRATE", "6000"))
+	targetWidth := getEnvInt("TARGET_WIDTH", 1920)
+	targetHeight := getEnvInt("TARGET_HEIGHT", 1080)
+	encoder := strings.ToLower(getEnvString("ENCODER", "gpu"))
+	cpuThreads := getEnvInt("CPU_THREADS", 4)
 	hlsTime := getEnvInt("HLS_TIME", 2)
 	hlsListSize := getEnvInt("HLS_LIST_SIZE", 10)
 	includeMic := getEnvBool("INCLUDE_MIC", false)
@@ -35,17 +44,26 @@ func Load() *Config {
 	defaultHLSDir := filepath.Join(getWorkingDir(), "hls")
 	hlsDir := getEnvString("HLS_DIR", defaultHLSDir)
 	audioSource := getEnvString("AUDIO_SOURCE", "stream_sink.monitor")
+	audioRouting := getEnvBool("AUDIO_ROUTING", true)
+	if strings.ToLower(audioSource) == "mirror" || strings.ToLower(audioSource) == "default" || strings.ToLower(audioSource) == "direct" {
+		audioRouting = false
+	}
 
 	return &Config{
 		Port:           port,
 		Framerate:      framerate,
 		VideoBitrate:   bitrate,
+		TargetWidth:    targetWidth,
+		TargetHeight:   targetHeight,
+		Encoder:        encoder,
+		CPUThreads:     cpuThreads,
 		HLSTime:        hlsTime,
 		HLSListSize:    hlsListSize,
 		IncludeMic:     includeMic,
 		AudioBlacklist: blacklist,
 		HLSDir:         hlsDir,
 		AudioSource:    audioSource,
+		AudioRouting:   audioRouting,
 	}
 }
 

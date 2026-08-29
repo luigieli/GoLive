@@ -67,3 +67,11 @@ func TestIsMicrophone(t *testing.T) {
 		}
 	}
 }
+
+func TestRouterMirrorMode(t *testing.T) {
+	filter := NewFilter([]string{"discord"}, false)
+	router := NewRouter(filter, false)
+	if router.enabled {
+		t.Errorf("expected router to be disabled in mirror mode")
+	}
+}

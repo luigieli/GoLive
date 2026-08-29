@@ -5,12 +5,13 @@ import (
 	"testing"
 )
 
-func TestBuildFFmpegArgs(t *testing.T) {
+func TestBuildFFmpegArgsCPU(t *testing.T) {
 	opts := Options{
 		Width:        1920,
 		Height:       1080,
 		Framerate:    30,
 		VideoBitrate: 6000,
+		Encoder:      "cpu",
 		HLSTime:      2,
 		HLSListSize:  5,
 		AudioSource:  "stream_sink.monitor",
@@ -22,6 +23,9 @@ func TestBuildFFmpegArgs(t *testing.T) {
 
 	if !strings.Contains(cmdStr, "-s 1920x1080") {
 		t.Errorf("expected resolution 1920x1080 in ffmpeg args, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "-c:v libx264") {
+		t.Errorf("expected -c:v libx264 in cpu ffmpeg args, got: %s", cmdStr)
 	}
 	if !strings.Contains(cmdStr, "-r 30") {
 		t.Errorf("expected framerate 30, got: %s", cmdStr)
@@ -37,6 +41,54 @@ func TestBuildFFmpegArgs(t *testing.T) {
 	}
 	if !strings.Contains(cmdStr, "/tmp/test_hls/index.m3u8") {
 		t.Errorf("expected manifest path in args, got: %s", cmdStr)
+	}
+}
+
+func TestBuildFFmpegArgsGPU(t *testing.T) {
+	opts := Options{
+		Width:        1920,
+		Height:       1080,
+		Framerate:    30,
+		VideoBitrate: 6000,
+		Encoder:      "gpu",
+		HLSTime:      2,
+		HLSListSize:  5,
+		AudioSource:  "stream_sink.monitor",
+		HLSDir:       "/tmp/test_hls",
+	}
+
+	args := BuildFFmpegArgs(opts)
+	cmdStr := strings.Join(args, " ")
+
+	if !strings.Contains(cmdStr, "-c:v h264_vaapi") {
+		t.Errorf("expected -c:v h264_vaapi in gpu ffmpeg args, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "-vaapi_device /dev/dri/renderD128") {
+		t.Errorf("expected vaapi_device in gpu ffmpeg args, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "-b:v 6000k") {
+		t.Errorf("expected video bitrate 6000k, got: %s", cmdStr)
+	}
+}
+
+func TestBuildFFmpegArgsNVENC(t *testing.T) {
+	opts := Options{
+		Width:        1920,
+		Height:       1080,
+		Framerate:    60,
+		VideoBitrate: 8000,
+		Encoder:      "nvenc",
+		HLSTime:      2,
+		HLSListSize:  5,
+		AudioSource:  "stream_sink.monitor",
+		HLSDir:       "/tmp/test_hls",
+	}
+
+	args := BuildFFmpegArgs(opts)
+	cmdStr := strings.Join(args, " ")
+
+	if !strings.Contains(cmdStr, "-c:v h264_nvenc") {
+		t.Errorf("expected -c:v h264_nvenc in nvenc ffmpeg args, got: %s", cmdStr)
 	}
 }
 

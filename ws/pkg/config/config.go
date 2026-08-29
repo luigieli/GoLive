@@ -13,9 +13,12 @@ type Config struct {
 	VideoBitrate   int
 	TargetWidth    int
 	TargetHeight   int
+	Encoder        string
+	CPUThreads     int
 	IncludeMic     bool
 	AudioBlacklist []string
 	AudioSource    string
+	AudioRouting   bool
 }
 
 func Load() *Config {
@@ -24,6 +27,8 @@ func Load() *Config {
 	bitrate := parseBitrate(getEnvString("VIDEO_BITRATE", "6000"))
 	targetWidth := getEnvInt("TARGET_WIDTH", 1920)
 	targetHeight := getEnvInt("TARGET_HEIGHT", 1080)
+	encoder := strings.ToLower(getEnvString("ENCODER", "gpu"))
+	cpuThreads := getEnvInt("CPU_THREADS", 4)
 	includeMic := getEnvBool("INCLUDE_MIC", false)
 
 	defaultBlacklist := "discord,Discord,vesktop,webcord,slack,zoom,teams"
@@ -31,6 +36,10 @@ func Load() *Config {
 	blacklist := parseList(rawBlacklist)
 
 	audioSource := getEnvString("AUDIO_SOURCE", "stream_sink.monitor")
+	audioRouting := getEnvBool("AUDIO_ROUTING", true)
+	if strings.ToLower(audioSource) == "mirror" || strings.ToLower(audioSource) == "default" || strings.ToLower(audioSource) == "direct" {
+		audioRouting = false
+	}
 
 	return &Config{
 		Port:           port,
@@ -38,9 +47,12 @@ func Load() *Config {
 		VideoBitrate:   bitrate,
 		TargetWidth:    targetWidth,
 		TargetHeight:   targetHeight,
+		Encoder:        encoder,
+		CPUThreads:     cpuThreads,
 		IncludeMic:     includeMic,
 		AudioBlacklist: blacklist,
 		AudioSource:    audioSource,
+		AudioRouting:   audioRouting,
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -15,6 +16,8 @@ type Options struct {
 	Height       int
 	Framerate    int
 	VideoBitrate int
+	Encoder      string
+	CPUThreads   int
 	HLSTime      int
 	HLSListSize  int
 	AudioSource  string
@@ -54,17 +57,52 @@ func BuildFFmpegArgs(opts Options) []string {
 		args = append(args, "-an")
 	}
 
+	threads := opts.CPUThreads
+	if threads <= 0 {
+		threads = 4
+	}
+
+	var videoEncArgs []string
+	switch strings.ToLower(opts.Encoder) {
+	case "cpu", "x264":
+		videoEncArgs = []string{
+			"-c:v", "libx264",
+			"-preset", "ultrafast",
+			"-tune", "zerolatency",
+			"-profile:v", "high",
+			"-threads", strconv.Itoa(threads),
+			"-pix_fmt", "yuv420p",
+			"-b:v", fmt.Sprintf("%dk", opts.VideoBitrate),
+			"-g", strconv.Itoa(gopSize),
+			"-keyint_min", strconv.Itoa(opts.Framerate),
+			"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", opts.HLSTime),
+			"-sc_threshold", "0",
+		}
+	case "nvenc":
+		videoEncArgs = []string{
+			"-c:v", "h264_nvenc",
+			"-preset", "p1",
+			"-tune", "ull",
+			"-b:v", fmt.Sprintf("%dk", opts.VideoBitrate),
+			"-g", strconv.Itoa(gopSize),
+			"-keyint_min", strconv.Itoa(opts.Framerate),
+			"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", opts.HLSTime),
+			"-sc_threshold", "0",
+		}
+	default: // "gpu", "vaapi", "auto"
+		videoEncArgs = []string{
+			"-vaapi_device", "/dev/dri/renderD128",
+			"-vf", "format=nv12,hwupload",
+			"-c:v", "h264_vaapi",
+			"-b:v", fmt.Sprintf("%dk", opts.VideoBitrate),
+			"-g", strconv.Itoa(gopSize),
+			"-keyint_min", strconv.Itoa(opts.Framerate),
+			"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", opts.HLSTime),
+		}
+	}
+
+	args = append(args, videoEncArgs...)
 	args = append(args,
-		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-tune", "zerolatency",
-		"-profile:v", "high",
-		"-pix_fmt", "yuv420p",
-		"-b:v", fmt.Sprintf("%dk", opts.VideoBitrate),
-		"-g", strconv.Itoa(gopSize),
-		"-keyint_min", strconv.Itoa(opts.Framerate),
-		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", opts.HLSTime),
-		"-sc_threshold", "0",
 		"-max_muxing_queue_size", "4096",
 		"-f", "hls",
 		"-hls_init_time", "1",
@@ -122,6 +160,7 @@ func (r *Runner) Start(ctx context.Context) error {
 		fmt.Sprintf("path=%d", r.opts.NodeID),
 		"do-timestamp=true",
 		"keepalive-time=33",
+		"always-copy=true",
 		"!", "queue", "max-size-buffers=3", "leaky=downstream",
 		"!", "videoconvert",
 		"!", "videoscale",

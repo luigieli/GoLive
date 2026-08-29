@@ -7,6 +7,11 @@ services:
       - ../.env
     user: "1000:1000"
     ipc: host
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "984"
+      - "988"
     ports:
       - "8080:8080"
       - "50000-50050:50000-50050/udp"
@@ -17,7 +22,11 @@ services:
       - PIPEWIRE_RUNTIME_DIR=/run/user/1000
       - PORT=8080
       - FRAMERATE=${FRAMERATE:-60}
+      - TARGET_WIDTH=${TARGET_WIDTH:-1920}
+      - TARGET_HEIGHT=${TARGET_HEIGHT:-1080}
       - VIDEO_BITRATE=${VIDEO_BITRATE:-6000k}
+      - ENCODER=${ENCODER:-gpu}
+      - CPU_THREADS=${CPU_THREADS:-4}
       - AUDIO_BLACKLIST=${AUDIO_BLACKLIST:-discord,Discord,vesktop,webcord,slack,zoom,teams}
       - INCLUDE_MIC=${INCLUDE_MIC:-false}
       - STUN_SERVERS=${STUN_SERVERS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302}

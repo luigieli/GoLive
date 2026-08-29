@@ -18,6 +18,12 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.VideoBitrate != 6000 {
 		t.Errorf("expected default VideoBitrate to be 6000, got %d", cfg.VideoBitrate)
 	}
+	if cfg.Encoder != "gpu" {
+		t.Errorf("expected default Encoder to be gpu, got %s", cfg.Encoder)
+	}
+	if !cfg.AudioRouting {
+		t.Errorf("expected default AudioRouting to be true, got false")
+	}
 	if cfg.HLSTime != 2 {
 		t.Errorf("expected default HLSTime to be 2, got %d", cfg.HLSTime)
 	}
@@ -36,6 +42,8 @@ func TestCustomEnvConfig(t *testing.T) {
 	os.Setenv("PORT", "9090")
 	os.Setenv("FRAMERATE", "60")
 	os.Setenv("VIDEO_BITRATE", "8000k")
+	os.Setenv("ENCODER", "cpu")
+	os.Setenv("AUDIO_ROUTING", "false")
 	os.Setenv("HLS_TIME", "1")
 	os.Setenv("HLS_LIST_SIZE", "10")
 	os.Setenv("INCLUDE_MIC", "true")
@@ -52,6 +60,12 @@ func TestCustomEnvConfig(t *testing.T) {
 	}
 	if cfg.VideoBitrate != 8000 {
 		t.Errorf("expected VideoBitrate 8000, got %d", cfg.VideoBitrate)
+	}
+	if cfg.Encoder != "cpu" {
+		t.Errorf("expected Encoder cpu, got %s", cfg.Encoder)
+	}
+	if cfg.AudioRouting {
+		t.Errorf("expected AudioRouting false, got true")
 	}
 	if cfg.HLSTime != 1 {
 		t.Errorf("expected HLSTime 1, got %d", cfg.HLSTime)

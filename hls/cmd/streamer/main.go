@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
-	"github.com/luigieli/streaming/hls/pkg/audio"
-	"github.com/luigieli/streaming/hls/pkg/config"
-	"github.com/luigieli/streaming/hls/pkg/pipeline"
-	"github.com/luigieli/streaming/hls/pkg/portal"
-	"github.com/luigieli/streaming/hls/pkg/server"
+	"github.com/luigieli/streaming/pkg/audio"
+	"github.com/luigieli/streaming/pkg/config"
+	"github.com/luigieli/streaming/pkg/pipeline"
+	"github.com/luigieli/streaming/pkg/portal"
+	"github.com/luigieli/streaming/pkg/server"
 )
 
 func main() {
@@ -42,7 +43,7 @@ func main() {
 
 	// Step 2: Start Audio Router & Blacklist Filter
 	audioFilter := audio.NewFilter(cfg.AudioBlacklist, cfg.IncludeMic)
-	audioRouter := audio.NewRouter(audioFilter)
+	audioRouter := audio.NewRouter(audioFilter, cfg.AudioRouting)
 	if err := audioRouter.Start(ctx); err != nil {
 		fmt.Printf("[AudioRouter] Notice: %v\n", err)
 	}
@@ -68,8 +69,11 @@ func main() {
 
 	// Step 4: Resolve Clean Desktop Audio Source
 	audioSource := cfg.AudioSource
-	if !cfg.IncludeMic {
-		if audio.IsMicrophone(audioSource) || audioSource == "default" || audioSource == "" {
+	if !cfg.AudioRouting || strings.ToLower(audioSource) == "mirror" || strings.ToLower(audioSource) == "default" || strings.ToLower(audioSource) == "direct" {
+		audioSource = audio.GetDesktopMonitorSource()
+		fmt.Printf("[*] Audio Capture: Direct Headphone Mirror (%s) - Headphones & Apps Untouched\n", audioSource)
+	} else if !cfg.IncludeMic {
+		if audio.IsMicrophone(audioSource) || audioSource == "" {
 			audioSource = "stream_sink.monitor"
 		}
 		fmt.Printf("[*] Audio Capture: Isolated Desktop Audio (%s), Microphone is DISABLED\n", audioSource)
@@ -82,6 +86,8 @@ func main() {
 		Height:       streamInfo.Height,
 		Framerate:    cfg.Framerate,
 		VideoBitrate: cfg.VideoBitrate,
+		Encoder:      cfg.Encoder,
+		CPUThreads:   cfg.CPUThreads,
 		HLSTime:      cfg.HLSTime,
 		HLSListSize:  cfg.HLSListSize,
 		AudioSource:  audioSource,

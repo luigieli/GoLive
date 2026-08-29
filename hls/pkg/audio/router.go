@@ -53,8 +53,17 @@ func GetDesktopMonitorSource() string {
 	out, err := cmd.Output()
 	if err == nil {
 		sink := strings.TrimSpace(string(out))
-		if sink != "" {
+		if sink != "" && sink != "stream_sink" {
 			return sink + ".monitor"
+		}
+	}
+
+	// Fallback to first non-stream_sink sink
+	sinksOut, _ := exec.Command("pactl", "list", "short", "sinks").Output()
+	for _, line := range strings.Split(string(sinksOut), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && !strings.Contains(fields[1], "stream_sink") {
+			return fields[1] + ".monitor"
 		}
 	}
 	return "stream_sink.monitor"
@@ -62,6 +71,7 @@ func GetDesktopMonitorSource() string {
 
 type Router struct {
 	filter              *Filter
+	enabled             bool
 	sinkName            string
 	physicalSink        string
 	nullSinkModuleID    string
@@ -71,9 +81,10 @@ type Router struct {
 	mu                  sync.Mutex
 }
 
-func NewRouter(filter *Filter) *Router {
+func NewRouter(filter *Filter, enabled bool) *Router {
 	return &Router{
 		filter:   filter,
+		enabled:  enabled,
 		sinkName: "stream_sink",
 	}
 }
@@ -81,6 +92,11 @@ func NewRouter(filter *Filter) *Router {
 func (r *Router) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if !r.enabled {
+		fmt.Println("[AudioRouter] Mirror Mode: Audio routing disabled. Capturing desktop audio directly without modifying sinks or apps.")
+		return nil
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	r.cancelFunc = cancel
@@ -94,26 +110,6 @@ func (r *Router) Start(ctx context.Context) error {
 }
 
 func (r *Router) setupRouting() error {
-	// Find current physical default sink
-	cmd := exec.Command("pactl", "get-default-sink")
-	out, _ := cmd.Output()
-	current := strings.TrimSpace(string(out))
-	if current != "" && current != r.sinkName {
-		r.physicalSink = current
-		r.originalDefaultSink = current
-	} else if r.physicalSink == "" {
-		// Find first non-null sink
-		sinksOut, _ := exec.Command("pactl", "list", "short", "sinks").Output()
-		for _, line := range strings.Split(string(sinksOut), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 && !strings.Contains(fields[1], r.sinkName) {
-				r.physicalSink = fields[1]
-				r.originalDefaultSink = fields[1]
-				break
-			}
-		}
-	}
-
 	// 1. Ensure stream_sink exists
 	checkCmd := exec.Command("pactl", "list", "short", "sinks")
 	sinksList, _ := checkCmd.Output()
@@ -127,31 +123,17 @@ func (r *Router) setupRouting() error {
 		}
 	}
 
-	// 2. Set up loopback from stream_sink.monitor to physicalSink so user hears desktop audio
-	if r.physicalSink != "" {
-		modsOut, _ := exec.Command("pactl", "list", "short", "modules").Output()
-		if !strings.Contains(string(modsOut), fmt.Sprintf("source=%s.monitor", r.sinkName)) {
-			loopCmd := exec.Command("pactl", "load-module", "module-loopback",
-				fmt.Sprintf("source=%s.monitor", r.sinkName),
-				fmt.Sprintf("sink=%s", r.physicalSink),
-				"latency_msec=20",
-			)
-			if loopOut, err := loopCmd.Output(); err == nil {
-				r.loopbackModuleID = strings.TrimSpace(string(loopOut))
-			}
-		}
+	// 2. We deliberately DO NOT create any loopback module to physicalSink!
+	// Native PipeWire direct linking mirrors application audio directly to stream_sink
+	// without any loopback echo, delay, or doubled audio in headphones.
 
-		// 3. Set stream_sink as default sink so all normal apps play into stream_sink
-		_ = exec.Command("pactl", "set-default-sink", r.sinkName).Run()
-	}
-
-	// 4. Immediately perform a sync
+	// 3. Immediately perform a sync
 	r.syncRoutes()
 	return nil
 }
 
 func (r *Router) monitorLoop(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -165,81 +147,58 @@ func (r *Router) monitorLoop(ctx context.Context) {
 }
 
 func (r *Router) syncRoutes() {
-	if r.physicalSink == "" {
-		return
-	}
-
-	cmd := exec.Command("pactl", "list", "sink-inputs")
+	cmd := exec.Command("pw-link", "-o")
 	out, err := cmd.Output()
-	if err != nil {
-		return
-	}
-
-	sections := strings.Split(string(out), "Sink Input #")
-	for _, sec := range sections {
-		if strings.TrimSpace(sec) == "" {
-			continue
-		}
-		lines := strings.Split(sec, "\n")
-		var index string
-
-		if len(lines) > 0 {
-			index = strings.TrimSpace(lines[0])
-		}
-
-		if index == "" {
-			continue
-		}
-
-		if isLoopbackSinkInput(lines, r.loopbackModuleID) {
-			_ = exec.Command("pactl", "move-sink-input", index, r.physicalSink).Run()
-			continue
-		}
-
-		var appName string
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
 		for _, line := range lines {
-			if strings.Contains(line, "application.name =") || strings.Contains(line, "application.process.binary =") {
-				parts := strings.Split(line, "=")
-				if len(parts) > 1 {
-					appName = strings.Trim(strings.TrimSpace(parts[1]), "\"")
+			port := strings.TrimSpace(line)
+			if port == "" {
+				continue
+			}
+
+			// Filter out monitor, capture, and system non-app ports
+			if strings.Contains(port, "monitor_") ||
+				strings.Contains(port, "capture_") ||
+				strings.HasPrefix(port, "stream_sink:") ||
+				strings.HasPrefix(port, "alsa_") ||
+				strings.HasPrefix(port, "ee_") ||
+				strings.HasPrefix(port, "easyeffects_") ||
+				strings.HasPrefix(port, "mitsu_") ||
+				strings.HasPrefix(port, "Midi-Bridge") ||
+				strings.HasPrefix(port, "bluez_") ||
+				strings.HasPrefix(port, "PulseAudio") ||
+				strings.HasPrefix(port, "gst-launch") ||
+				strings.HasPrefix(port, "xdg-desktop-portal") {
+				continue
+			}
+
+			nodeName := port
+			if idx := strings.Index(port, ":"); idx != -1 {
+				nodeName = port[:idx]
+			}
+
+			if r.filter.IsBlacklisted(nodeName) {
+				// Blacklisted app (e.g. Discord, WEBRTC VoiceEngine) -> Ensure disconnected from stream_sink
+				if strings.HasSuffix(port, "_FL") || strings.HasSuffix(port, ":output_0") {
+					_ = exec.Command("pw-link", "-d", port, "stream_sink:playback_FL").Run()
+				}
+				if strings.HasSuffix(port, "_FR") || strings.HasSuffix(port, ":output_1") {
+					_ = exec.Command("pw-link", "-d", port, "stream_sink:playback_FR").Run()
+				}
+			} else {
+				// Non-blacklisted app (e.g. CS2, Chrome, Spotify) -> Link directly into stream_sink
+				if strings.HasSuffix(port, "_FL") || strings.HasSuffix(port, ":output_0") {
+					_ = exec.Command("pw-link", port, "stream_sink:playback_FL").Run()
+				} else if strings.HasSuffix(port, "_FR") || strings.HasSuffix(port, ":output_1") {
+					_ = exec.Command("pw-link", port, "stream_sink:playback_FR").Run()
+				} else if strings.HasSuffix(port, "_MONO") || strings.HasSuffix(port, ":output") {
+					_ = exec.Command("pw-link", port, "stream_sink:playback_FL").Run()
+					_ = exec.Command("pw-link", port, "stream_sink:playback_FR").Run()
 				}
 			}
 		}
-
-		if appName != "" {
-			if r.filter.IsBlacklisted(appName) {
-				// Blacklisted app (e.g. Discord, Slack) -> Route directly to physical speakers/headphones
-				_ = exec.Command("pactl", "move-sink-input", index, r.physicalSink).Run()
-			} else {
-				// Non-blacklisted app -> Ensure it plays into stream_sink if not already
-				_ = exec.Command("pactl", "move-sink-input", index, r.sinkName).Run()
-			}
-		}
 	}
-}
-
-func isLoopbackSinkInput(lines []string, loopbackModuleID string) bool {
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if loopbackModuleID != "" && (strings.Contains(trimmed, "Owner Module: "+loopbackModuleID) ||
-			strings.Contains(trimmed, fmt.Sprintf("pulse.module.id = \"%s\"", loopbackModuleID)) ||
-			strings.Contains(trimmed, fmt.Sprintf("pulse.module.id = %s", loopbackModuleID))) {
-			return true
-		}
-		if strings.Contains(trimmed, "node.name =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
-			return true
-		}
-		if strings.Contains(trimmed, "media.name =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
-			return true
-		}
-		if strings.Contains(trimmed, "device.description =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
-			return true
-		}
-		if strings.Contains(trimmed, "module-stream-restore.id =") && strings.Contains(strings.ToLower(trimmed), "loopback") {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *Router) Stop() {
@@ -250,28 +209,6 @@ func (r *Router) Stop() {
 		r.cancelFunc()
 	}
 
-	// Restore original default sink
-	if r.originalDefaultSink != "" {
-		_ = exec.Command("pactl", "set-default-sink", r.originalDefaultSink).Run()
-
-		// Move all sink inputs back to physical sink
-		cmd := exec.Command("pactl", "list", "sink-inputs")
-		if out, err := cmd.Output(); err == nil {
-			sections := strings.Split(string(out), "Sink Input #")
-			for _, sec := range sections {
-				lines := strings.Split(sec, "\n")
-				if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
-					index := strings.TrimSpace(lines[0])
-					_ = exec.Command("pactl", "move-sink-input", index, r.originalDefaultSink).Run()
-				}
-			}
-		}
-	}
-
-	if r.loopbackModuleID != "" {
-		_ = exec.Command("pactl", "unload-module", r.loopbackModuleID).Run()
-		r.loopbackModuleID = ""
-	}
 	if r.nullSinkModuleID != "" {
 		_ = exec.Command("pactl", "unload-module", r.nullSinkModuleID).Run()
 		r.nullSinkModuleID = ""

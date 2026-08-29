@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/pion/rtp"
@@ -17,6 +18,8 @@ type Options struct {
 	Height       int
 	Framerate    int
 	VideoBitrate int
+	Encoder      string
+	CPUThreads   int
 	NodeID       int
 	PipeWireFD   int
 	AudioSource  string
@@ -48,7 +51,64 @@ func NewRunner(opts Options, broadcaster *webrtcPkg.Broadcaster) *Runner {
 }
 
 func (r *Runner) buildGstArgs() []string {
-	return []string{
+	width := r.opts.Width
+	if width <= 0 {
+		width = 1920
+	}
+	height := r.opts.Height
+	if height <= 0 {
+		height = 1080
+	}
+	fps := r.opts.Framerate
+	if fps <= 0 {
+		fps = 60
+	}
+
+	threads := r.opts.CPUThreads
+	if threads <= 0 {
+		threads = 4
+	}
+
+	var encoderElements []string
+	switch strings.ToLower(r.opts.Encoder) {
+	case "cpu", "x264":
+		encoderElements = []string{
+			"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1", width, height, fps),
+			"!", "x264enc",
+			"tune=zerolatency",
+			"speed-preset=ultrafast",
+			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
+			fmt.Sprintf("key-int-max=%d", fps),
+			"bframes=0",
+			fmt.Sprintf("threads=%d", threads),
+			"sliced-threads=true",
+			"byte-stream=true",
+			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		}
+	case "nvenc":
+		encoderElements = []string{
+			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", width, height, fps),
+			"!", "nvh264enc",
+			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
+			fmt.Sprintf("gop-size=%d", fps),
+			"rc-mode=cbr-ld-hq",
+			"zerolatency=true",
+			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		}
+	default: // "gpu", "vaapi", "auto"
+		encoderElements = []string{
+			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", width, height, fps),
+			"!", "vaapih264enc",
+			"rate-control=cbr",
+			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
+			fmt.Sprintf("keyframe-period=%d", fps),
+			"max-bframes=0",
+			"tune=none",
+			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		}
+	}
+
+	args := []string{
 		"-q",
 		// Video Pipeline
 		"pipewiresrc",
@@ -56,20 +116,15 @@ func (r *Runner) buildGstArgs() []string {
 		fmt.Sprintf("path=%d", r.opts.NodeID),
 		"do-timestamp=true",
 		"keepalive-time=33",
+		"always-copy=true",
 		"!", "queue", "max-size-buffers=3", "leaky=downstream",
 		"!", "videoconvert",
 		"!", "videoscale",
 		"!", "videorate", "drop-only=false", "skip-to-first=true",
-		"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1", r.opts.Width, r.opts.Height, r.opts.Framerate),
-		"!", "x264enc",
-		"tune=zerolatency",
-		"speed-preset=ultrafast",
-		fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
-		"key-int-max=30",
-		"bframes=0",
-		"sliced-threads=true",
-		"byte-stream=true",
-		"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+	}
+
+	args = append(args, encoderElements...)
+	args = append(args,
 		"!", "rtph264pay",
 		"config-interval=1",
 		"pt=96",
@@ -93,7 +148,9 @@ func (r *Runner) buildGstArgs() []string {
 		"host=127.0.0.1",
 		fmt.Sprintf("port=%d", r.opts.AudioUDPPort),
 		"sync=false",
-	}
+	)
+
+	return args
 }
 
 func (r *Runner) Start(ctx context.Context) error {

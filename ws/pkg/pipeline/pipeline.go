@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/luigieli/streaming/ws/pkg/server"
@@ -17,6 +18,8 @@ type Options struct {
 	TargetHeight int
 	Framerate    int
 	VideoBitrate int
+	Encoder      string
+	CPUThreads   int
 	NodeID       int
 	PipeWireFD   int
 	AudioSource  string
@@ -57,6 +60,52 @@ func (r *Runner) buildGstArgs() []string {
 		fps = 30
 	}
 
+	threads := r.opts.CPUThreads
+	if threads <= 0 {
+		threads = 4
+	}
+
+	var encoderElements []string
+	switch strings.ToLower(r.opts.Encoder) {
+	case "cpu", "x264":
+		encoderElements = []string{
+			"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
+			"!", "x264enc",
+			"tune=zerolatency",
+			"speed-preset=ultrafast",
+			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
+			fmt.Sprintf("key-int-max=%d", fps),
+			"bframes=0",
+			fmt.Sprintf("threads=%d", threads),
+			"sliced-threads=true",
+			"rc-lookahead=0",
+			"sync-lookahead=0",
+			"byte-stream=true",
+			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		}
+	case "nvenc":
+		encoderElements = []string{
+			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
+			"!", "nvh264enc",
+			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
+			fmt.Sprintf("gop-size=%d", fps),
+			"rc-mode=cbr-ld-hq",
+			"zerolatency=true",
+			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		}
+	default: // "gpu", "vaapi", "auto"
+		encoderElements = []string{
+			"!", fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
+			"!", "vaapih264enc",
+			"rate-control=cbr",
+			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
+			fmt.Sprintf("keyframe-period=%d", fps),
+			"max-bframes=0",
+			"tune=none",
+			"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		}
+	}
+
 	args := []string{
 		"-q",
 		// Video Branch
@@ -65,23 +114,15 @@ func (r *Runner) buildGstArgs() []string {
 		fmt.Sprintf("path=%d", r.opts.NodeID),
 		"do-timestamp=true",
 		"keepalive-time=16",
+		"always-copy=true",
 		"!", "queue", "max-size-buffers=3", "max-size-time=0", "max-size-bytes=0", "leaky=downstream",
 		"!", "videoconvert",
 		"!", "videoscale", "method=1",
 		"!", "videorate", "drop-only=false", "skip-to-first=true",
-		"!", fmt.Sprintf("video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1", outWidth, outHeight, fps),
-		"!", "x264enc",
-		"tune=zerolatency",
-		"speed-preset=ultrafast",
-		fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
-		fmt.Sprintf("key-int-max=%d", fps),
-		"bframes=0",
-		"threads=4",
-		"sliced-threads=true",
-		"rc-lookahead=0",
-		"sync-lookahead=0",
-		"byte-stream=true",
-		"!", "video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+	}
+
+	args = append(args, encoderElements...)
+	args = append(args,
 		"!", "h264parse",
 		"!", "queue", "max-size-buffers=5", "leaky=downstream",
 		"!", "mux.",
@@ -112,7 +153,7 @@ func (r *Runner) buildGstArgs() []string {
 		// MPEG-TS Muxer
 		"mpegtsmux", "name=mux", "alignment=7",
 		"!", "fdsink", "fd=1", "sync=false",
-	}
+	)
 
 	return args
 }

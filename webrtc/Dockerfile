@@ -17,6 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-plugins-ugly \
+    gstreamer1.0-vaapi \
+    mesa-va-drivers \
+    libva2 \
+    libva-drm2 \
+    intel-media-va-driver \
+    vainfo \
     libpulse0 \
     pulseaudio-utils \
     dbus \

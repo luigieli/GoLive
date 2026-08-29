@@ -18,6 +18,12 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.VideoBitrate != 6000 {
 		t.Errorf("expected VideoBitrate=6000, got %d", cfg.VideoBitrate)
 	}
+	if cfg.Encoder != "gpu" {
+		t.Errorf("expected Encoder=gpu, got %s", cfg.Encoder)
+	}
+	if !cfg.AudioRouting {
+		t.Errorf("expected AudioRouting=true, got false")
+	}
 	if cfg.IncludeMic {
 		t.Errorf("expected IncludeMic=false, got true")
 	}
@@ -34,6 +40,8 @@ func TestCustomEnvConfig(t *testing.T) {
 	os.Setenv("PORT", "9090")
 	os.Setenv("FRAMERATE", "30")
 	os.Setenv("VIDEO_BITRATE", "10000k")
+	os.Setenv("ENCODER", "cpu")
+	os.Setenv("AUDIO_ROUTING", "false")
 	os.Setenv("INCLUDE_MIC", "true")
 	os.Setenv("AUDIO_BLACKLIST", "app1, app2")
 	os.Setenv("STUN_SERVERS", "stun:stun.example.com:3478")
@@ -48,6 +56,12 @@ func TestCustomEnvConfig(t *testing.T) {
 	}
 	if cfg.VideoBitrate != 10000 {
 		t.Errorf("expected VideoBitrate=10000, got %d", cfg.VideoBitrate)
+	}
+	if cfg.Encoder != "cpu" {
+		t.Errorf("expected Encoder=cpu, got %s", cfg.Encoder)
+	}
+	if cfg.AudioRouting {
+		t.Errorf("expected AudioRouting=false, got true")
 	}
 	if !cfg.IncludeMic {
 		t.Errorf("expected IncludeMic=true, got false")

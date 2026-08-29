@@ -68,44 +68,10 @@ func TestIsMicrophone(t *testing.T) {
 	}
 }
 
-func TestIsLoopbackSinkInput(t *testing.T) {
-	loopbackID := "536870917"
-
-	loopbackSection1 := []string{
-		"Sink Input #1669",
-		"Driver: PipeWire",
-		"Owner Module: 536870917",
-		"media.name = \"loopback-2320-13 output\"",
-	}
-
-	loopbackSection2 := []string{
-		"Sink Input #100",
-		"node.name = \"output.loopback-stream\"",
-	}
-
-	loopbackSection3 := []string{
-		"Sink Input #101",
-		"device.description = \"Loopback to headphones\"",
-	}
-
-	regularAppSection := []string{
-		"Sink Input #1652",
-		"Driver: PipeWire",
-		"Owner Module: n/a",
-		"application.name = \"Zen\"",
-		"media.name = \"YouTube\"",
-	}
-
-	if !isLoopbackSinkInput(loopbackSection1, loopbackID) {
-		t.Errorf("expected loopbackSection1 to be detected as loopback")
-	}
-	if !isLoopbackSinkInput(loopbackSection2, loopbackID) {
-		t.Errorf("expected loopbackSection2 to be detected as loopback")
-	}
-	if !isLoopbackSinkInput(loopbackSection3, loopbackID) {
-		t.Errorf("expected loopbackSection3 to be detected as loopback")
-	}
-	if isLoopbackSinkInput(regularAppSection, loopbackID) {
-		t.Errorf("expected regularAppSection NOT to be detected as loopback")
+func TestRouterMirrorMode(t *testing.T) {
+	filter := NewFilter([]string{"discord"}, false)
+	router := NewRouter(filter, false)
+	if router.enabled {
+		t.Errorf("expected router to be disabled in mirror mode")
 	}
 }

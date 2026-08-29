@@ -90,6 +90,11 @@ AUDIO_BLACKLIST=discord,Discord,vesktop,webcord,slack,zoom,teams
 # Include microphone (false = only desktop/game audio)
 INCLUDE_MIC=false
 
+# Video encoder mode:
+# - gpu   : Hardware-accelerated encoding (VA-API for AMD/Intel, NVENC for NVIDIA) [Default & Recommended]
+# - cpu   : CPU software encoding via x264 (fallback or CPU-only)
+ENCODER=gpu
+
 # Video output settings
 FRAMERATE=60
 TARGET_WIDTH=1920
@@ -97,12 +102,21 @@ TARGET_HEIGHT=1080
 VIDEO_BITRATE=6000k
 ```
 
-### 3. Launch Streamer
+### 3. Launch Streamer (Choose GPU or CPU)
 
-To start the default ultra-low latency WebSocket streamer:
+You can launch using hardware acceleration (**GPU**) or software (**CPU**) directly via CLI flags or your `.env` configuration:
 
 ```bash
-./run.sh
+# Launch default WebSocket streamer with GPU hardware acceleration
+./run.sh --gpu
+
+# Launch with CPU-only encoding (software x264)
+./run.sh --cpu
+
+# Run specific backend with GPU or CPU
+./run.sh ws --gpu
+./run.sh webrtc --gpu
+./run.sh hls --cpu
 ```
 
 When prompted on your desktop, select the screen or window you want to share.
@@ -116,13 +130,24 @@ When prompted on your desktop, select the screen or window you want to share.
 
 ## 🎛️ Running Specific Streaming Engines
 
-You can launch any of the three independent streaming implementations:
+You can launch any of the three independent streaming implementations with `--gpu` or `--cpu`:
 
 | Engine | Launcher Script | Protocol | Latency | Cloudflare Tunnel Support |
 | :--- | :--- | :--- | :--- | :--- |
-| **WebSocket (Recommended)** | `./run_ws.sh` | MPEG-TS over WS | **~200ms** | ✅ Full Support |
-| **WebRTC** | `./run_webrtc.sh` | WebRTC (Pion) | **~150ms** | Direct / Local / P2P |
-| **Low-Latency HLS** | `./run_hls.sh` | HLS (.m3u8) | **~2-3s** | ✅ Full Support |
+| **WebSocket (Recommended)** | `./run_ws.sh [--gpu\|--cpu]` | MPEG-TS over WS | **~200ms** | ✅ Full Support |
+| **WebRTC** | `./run_webrtc.sh [--gpu\|--cpu]` | WebRTC (Pion) | **~150ms** | Direct / Local / P2P |
+| **Low-Latency HLS** | `./run_hls.sh [--gpu\|--cpu]` | HLS (.m3u8) | **~2-3s** | ✅ Full Support |
+
+---
+
+## 🚀 GPU Hardware Acceleration vs CPU
+
+- **GPU Mode (`ENCODER=gpu` / `--gpu`)**:
+  - Uses Linux **VA-API** (`vaapih264enc` / `h264_vaapi`) for AMD Radeon and Intel GPUs, or **NVENC** (`nvh264enc` / `h264_nvenc`) for NVIDIA GPUs.
+  - Zero CPU overhead, preserving all CPU threads for games and high-framerate tasks.
+- **CPU Mode (`ENCODER=cpu` / `--cpu`)**:
+  - Uses `x264enc` (GStreamer) and `libx264` (FFmpeg) configured with `ultrafast` zerolatency profiles.
+  - Universally compatible on any machine without requiring GPU pass-through or render permissions.
 
 ---
 
