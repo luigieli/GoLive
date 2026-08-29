@@ -39,7 +39,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Wayland Screen & Audio Live Streamer"
             echo ""
-            echo "Usage: ./run.sh [MODE] [OPTIONS]"
+            echo "Usage: ./run [MODE] [OPTIONS]"
             echo ""
             echo "Modes:"
             echo "  ws, websocket    Ultra-low latency WebSocket streaming (<200ms) [Default]"
@@ -57,16 +57,16 @@ for arg in "$@"; do
             echo "  --isolate, -i    Voice isolation mode: Uses virtual sink + blacklist to filter out Discord/voice calls"
             echo ""
             echo "Examples:"
-            echo "  ./run.sh --gpu --mirror   # GPU stream with 100% untouched headphone audio mirroring"
-            echo "  ./run.sh --gpu            # Launch WebSocket streamer with GPU"
-            echo "  ./run.sh --cpu            # Launch WebSocket streamer with CPU only"
-            echo "  ./run.sh webrtc --mirror  # WebRTC streamer with passive audio mirroring"
-            echo "  ./run.sh hls --cpu        # Launch HLS streamer with CPU only"
+            echo "  ./run --gpu --mirror   # GPU stream with 100% untouched headphone audio mirroring"
+            echo "  ./run --gpu            # Launch WebSocket streamer with GPU"
+            echo "  ./run --cpu            # Launch WebSocket streamer with CPU only"
+            echo "  ./run webrtc --mirror  # WebRTC streamer with passive audio mirroring"
+            echo "  ./run hls --cpu        # Launch HLS streamer with CPU only"
             exit 0
             ;;
         *)
             echo "Unknown argument: $arg"
-            echo "Run './run.sh --help' for usage instructions."
+            echo "Run './run --help' for usage instructions."
             exit 1
             ;;
     esac

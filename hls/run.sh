@@ -15,7 +15,7 @@ fi
 TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-}"
 if [ -n "$TOKEN" ] && [ "$TOKEN" != "your_cloudflare_tunnel_token_here" ] && [ "$TOKEN" != "your_token_here" ]; then
     export CLOUDFLARE_TUNNEL_COMMAND="tunnel --no-autoupdate run --token ${TOKEN}"
-    TUNNEL_MODE="Custom Token Tunnel (stream.luigieli.com)"
+    TUNNEL_MODE="Custom Cloudflare Token Tunnel"
 else
     export CLOUDFLARE_TUNNEL_COMMAND="tunnel --no-autoupdate --url http://streamer:8080"
     TUNNEL_MODE="Automatic Quick Tunnel (TryCloudflare - Free / No Account Needed)"
