@@ -151,17 +151,29 @@ You can launch any of the three independent streaming implementations with `--gp
 
 ---
 
-## 🔈 Audio Isolation & Voice Routing
+## 🔈 Audio Modes: Passive Mirror vs Voice Isolation
 
-The built-in audio router manages PulseAudio / PipeWire sink inputs dynamically:
+You can choose between two audio capture strategies:
 
-1. Creates a dedicated virtual `stream_sink`.
-2. Sets up a loopback from `stream_sink` to your physical headphones so you hear all desktop audio normally.
-3. Automatically scans all active audio streams every second:
-   - **Games / YouTube / Music / System Sounds** $\rightarrow$ Routed into `stream_sink` (streamed to viewers).
-   - **Discord / Slack / Zoom Voice Calls** $\rightarrow$ Kept strictly on your physical headphones (excluded from stream).
+### 1. Passive Headphone Mirror Mode (`--mirror` / `AUDIO_ROUTING=false`) [Recommended]
+* **How it works**: Uses PipeWire's built-in sink monitor (`<default-sink>.monitor` or `easyeffects_sink.monitor`).
+* **Zero System Touch**: Does **not** change your default audio device, does **not** move applications (Chrome, games, Spotify remain exactly where you put them), and does **not** interfere with EasyEffects.
+* **Result**: Everything you hear in your headphones is mirrored into the live stream with 0ms added latency.
 
-> **Tip:** If you *do* want Discord audio to be heard by viewers, simply set `AUDIO_BLACKLIST=` (empty) in your `.env`.
+```bash
+# Launch with passive mirror mode
+./run.sh --gpu --mirror
+```
+
+### 2. Voice Isolation Mode (`--isolate` / `AUDIO_ROUTING=true`)
+* **How it works**: Creates a virtual `stream_sink` and dynamically scans active audio streams every second:
+  - **Games / YouTube / Chrome / Music** $\rightarrow$ Routed into `stream_sink` (streamed to viewers) and looped back to headphones.
+  - **Discord / Slack / Zoom Voice Calls** $\rightarrow$ Kept strictly on physical headphones (excluded from stream).
+
+```bash
+# Launch with voice isolation mode
+./run.sh --gpu --isolate
+```
 
 ---
 
