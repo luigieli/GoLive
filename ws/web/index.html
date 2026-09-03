@@ -321,7 +321,7 @@
                 </div>
             </div>
             <div class="stream-mode-badge">
-                <span>⚡ WebSocket (&lt;200ms)</span>
+                <span>⚡ WebSocket (Low Latency)</span>
             </div>
         </header>
 
@@ -437,13 +437,13 @@
                 isLive: true,
                 url: wsUrl
             }, {
-                enableWorker: false,
+                enableWorker: true,
                 enableStashBuffer: true,
-                stashInitialSize: 128,
+                stashInitialSize: 384,
                 lazyLoad: false,
                 liveBufferLatencyChasing: true,
-                liveBufferLatencyMaxLatency: 1.5,
-                liveBufferLatencyMinRemain: 0.2,
+                liveBufferLatencyMaxLatency: 2.5,
+                liveBufferLatencyMinRemain: 0.6,
                 autoCleanupSourceBuffer: true,
                 autoCleanupMaxBackwardDuration: 3,
                 autoCleanupMinBackwardDuration: 1
