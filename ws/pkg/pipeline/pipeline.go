@@ -108,9 +108,8 @@ func (r *Runner) buildGstArgs() []string {
 		}
 	default: // "gpu", "vaapi", "auto"
 		encoderElements = []string{
-			"!", "videoconvert",
 			"!", "videorate",
-			"!", fmt.Sprintf("video/x-raw,framerate=%d/1", fps),
+			"!", fmt.Sprintf("video/x-raw(ANY),framerate=%d/1", fps),
 			"!", "vaapipostproc", "scale-method=2", "format=nv12",
 			fmt.Sprintf("width=%d", outWidth),
 			fmt.Sprintf("height=%d", outHeight),
@@ -121,6 +120,7 @@ func (r *Runner) buildGstArgs() []string {
 			"cabac=true",
 			"dct8x8=true",
 			"quality-level=1",
+			"cpb-length=1000",
 			fmt.Sprintf("bitrate=%d", r.opts.VideoBitrate),
 			fmt.Sprintf("keyframe-period=%d", fps),
 			"max-bframes=0",
@@ -140,9 +140,8 @@ func (r *Runner) buildGstArgs() []string {
 		fmt.Sprintf("path=%d", r.opts.NodeID),
 		"do-timestamp=true",
 		"keepalive-time=16",
-		"always-copy=true",
-		"!", "video/x-raw",
-		"!", "queue", "max-size-buffers=3", "max-size-time=0", "max-size-bytes=0", "leaky=downstream",
+		"always-copy=false",
+		"!", "queue", "max-size-buffers=15", "max-size-time=200000000", "max-size-bytes=0", "leaky=downstream",
 	}
 
 	args = append(args, encoderElements...)

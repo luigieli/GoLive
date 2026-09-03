@@ -79,6 +79,9 @@ func TestBuildGstArgsGPU(t *testing.T) {
 	if !strings.Contains(cmdStr, "rate-control=cbr") {
 		t.Errorf("expected rate-control=cbr in gpu gst args, got: %s", cmdStr)
 	}
+	if !strings.Contains(cmdStr, "cpb-length=1000") {
+		t.Errorf("expected cpb-length=1000 in gpu gst args, got: %s", cmdStr)
+	}
 	if !strings.Contains(cmdStr, "mpegtsmux") {
 		t.Errorf("expected mpegtsmux in gst args, got: %s", cmdStr)
 	}
