@@ -34,7 +34,7 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Step 1: Initialize WebRTC Broadcaster
-	broadcaster, err := webrtcPkg.NewBroadcaster(cfg.ICEServers)
+	broadcaster, err := webrtcPkg.NewBroadcaster(cfg.ICEServers, cfg.NAT1To1IPs)
 	if err != nil {
 		fmt.Printf("[!] Failed to initialize WebRTC broadcaster: %v\n", err)
 		os.Exit(1)

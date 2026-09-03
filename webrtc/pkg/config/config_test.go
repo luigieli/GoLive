@@ -45,6 +45,7 @@ func TestCustomEnvConfig(t *testing.T) {
 	os.Setenv("INCLUDE_MIC", "true")
 	os.Setenv("AUDIO_BLACKLIST", "app1, app2")
 	os.Setenv("STUN_SERVERS", "stun:stun.example.com:3478")
+	os.Setenv("NAT_1TO1_IPS", "192.168.1.100")
 
 	cfg := Load()
 
@@ -71,5 +72,8 @@ func TestCustomEnvConfig(t *testing.T) {
 	}
 	if len(cfg.ICEServers) != 1 || cfg.ICEServers[0] != "stun:stun.example.com:3478" {
 		t.Errorf("expected ICEServers=[stun:stun.example.com:3478], got %v", cfg.ICEServers)
+	}
+	if len(cfg.NAT1To1IPs) != 1 || cfg.NAT1To1IPs[0] != "192.168.1.100" {
+		t.Errorf("expected NAT1To1IPs=[192.168.1.100], got %v", cfg.NAT1To1IPs)
 	}
 }

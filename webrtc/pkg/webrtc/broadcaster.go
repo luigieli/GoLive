@@ -18,7 +18,7 @@ type Broadcaster struct {
 	mu              sync.RWMutex
 }
 
-func NewBroadcaster(iceServers []string) (*Broadcaster, error) {
+func NewBroadcaster(iceServers []string, natIPs ...[]string) (*Broadcaster, error) {
 	var iceList []webrtc.ICEServer
 	for _, s := range iceServers {
 		if s != "" {
@@ -28,7 +28,7 @@ func NewBroadcaster(iceServers []string) (*Broadcaster, error) {
 
 	mediaEngine := &webrtc.MediaEngine{}
 
-	// Register H.264 as primary video codec with payload type 96
+	// Register H.264 as primary video codec with payload type 96 (constrained-baseline)
 	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType:     webrtc.MimeTypeH264,
@@ -41,6 +41,18 @@ func NewBroadcaster(iceServers []string) (*Broadcaster, error) {
 	}, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, fmt.Errorf("failed to register h264 codec: %w", err)
 	}
+
+	// Register H.264 High profile as compatible alternative (payload type 98)
+	_ = mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:     webrtc.MimeTypeH264,
+			ClockRate:    90000,
+			Channels:     0,
+			SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f",
+			RTCPFeedback: []webrtc.RTCPFeedback{{Type: "nack"}, {Type: "nack", Parameter: "pli"}, {Type: "ccm", Parameter: "fir"}, {Type: "goog-remb"}},
+		},
+		PayloadType: 98,
+	}, webrtc.RTPCodecTypeVideo)
 
 	// Register Opus as primary audio codec with payload type 111
 	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
@@ -58,6 +70,17 @@ func NewBroadcaster(iceServers []string) (*Broadcaster, error) {
 
 	settingEngine := webrtc.SettingEngine{}
 	_ = settingEngine.SetEphemeralUDPPortRange(50000, 50050)
+	if len(natIPs) > 0 && len(natIPs[0]) > 0 {
+		var validIPs []string
+		for _, ip := range natIPs[0] {
+			if ip != "" {
+				validIPs = append(validIPs, ip)
+			}
+		}
+		if len(validIPs) > 0 {
+			settingEngine.SetNAT1To1IPs(validIPs, webrtc.ICECandidateTypeHost)
+		}
+	}
 
 	api := webrtc.NewAPI(
 		webrtc.WithMediaEngine(mediaEngine),

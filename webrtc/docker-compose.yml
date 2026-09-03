@@ -33,6 +33,7 @@ services:
       - AUDIO_BLACKLIST=${AUDIO_BLACKLIST:-discord,Discord,vesktop,webcord,slack,zoom,teams,webrtc,WEBRTC}
       - INCLUDE_MIC=${INCLUDE_MIC:-false}
       - STUN_SERVERS=${STUN_SERVERS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302}
+      - NAT_1TO1_IPS=${NAT_1TO1_IPS:-}
     volumes:
       - /run/user/1000/bus:/run/user/1000/bus
       - /run/user/1000/pipewire-0:/run/user/1000/pipewire-0

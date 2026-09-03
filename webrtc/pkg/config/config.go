@@ -20,6 +20,7 @@ type Config struct {
 	AudioSource    string
 	AudioRouting   bool
 	ICEServers     []string
+	NAT1To1IPs     []string
 }
 
 func Load() *Config {
@@ -46,6 +47,9 @@ func Load() *Config {
 	rawSTUN := getEnvString("STUN_SERVERS", defaultSTUN)
 	iceServers := parseList(rawSTUN)
 
+	rawNAT := getEnvString("NAT_1TO1_IPS", "")
+	nat1to1IPs := parseList(rawNAT)
+
 	return &Config{
 		Port:           port,
 		Framerate:      framerate,
@@ -59,6 +63,7 @@ func Load() *Config {
 		AudioSource:    audioSource,
 		AudioRouting:   audioRouting,
 		ICEServers:     iceServers,
+		NAT1To1IPs:     nat1to1IPs,
 	}
 }
 
