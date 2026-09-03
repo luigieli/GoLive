@@ -64,7 +64,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	client := &Client{
 		hub:  s.hub,
 		conn: conn,
-		send: make(chan []byte, 2048),
+		send: make(chan []byte, 128),
 	}
 
 	s.hub.register <- client

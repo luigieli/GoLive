@@ -105,7 +105,7 @@ func (h *Hub) Run() {
 				select {
 				case client.send <- message:
 				default:
-					// Drop only if client queue is completely saturated (2048 chunks = ~130MB buffer)
+					// Drop packet if client queue is saturated to prevent latency accumulation (128 chunks = ~8MB buffer)
 				}
 			}
 			h.mu.RUnlock()
