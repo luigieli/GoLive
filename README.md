@@ -114,21 +114,35 @@ Use the unified [`./run`](file:///home/luigi/streaming/run) script:
 ./run
 
 # With specific options:
-./run --gpu --mirror     # GPU hardware acceleration + passive headphone mirror
+./run --gpu --mirror     # GPU hardware acceleration + passive headphone mirror [Recommended]
 ./run --cpu --isolate    # CPU software encoding + voice isolation
 ```
 
 When prompted on your desktop, select the screen or window you want to share.
 
+To stop streaming, simply press **`Ctrl+C`**. The script will automatically tear down the containers and clean up audio routes.
+
 ---
 
-### 4. Running Specific Components
+### 4. Watching the Stream
+
+Once launched, viewers can watch the live stream in any web browser:
+
+* **Local Machine**: Open `http://localhost:8080`
+* **Local Network (LAN)**: Open `http://<your-lan-ip>:8080` (e.g., phones, tablets, smart TVs on Wi-Fi)
+* **Public Internet (Remote Friends)**:
+  - If using a custom token: Open your configured domain (e.g. `https://stream.yourdomain.com`).
+  - If using the automatic Quick Tunnel: The terminal will print a free TryCloudflare link (e.g. `https://random-words.trycloudflare.com`). Share this URL with your viewers!
+
+---
+
+### 5. Running Specific Components
 
 #### Run Only the Server (Ideal for OBS Studio or VPS Hosting)
 ```bash
 ./run server
 ```
-* **Server URL**: `http://localhost:8080`
+* **Viewer Player**: `http://localhost:8080`
 * **OBS WHIP Ingest**: `http://localhost:8080/whip`
 * **Go Client Ingest**: `http://localhost:8080/api/publish`
 
@@ -137,6 +151,16 @@ When prompted on your desktop, select the screen or window you want to share.
 ./run client --gpu --mirror
 ```
 * Captures your desktop and pushes the stream to `http://localhost:8080/api/publish` (or a remote server set via `SERVER_URL`).
+
+#### Running Natively (Without Docker)
+You can also run both binaries directly on the host using the Go toolchain:
+```bash
+# Terminal 1: Start the server
+go run ./server/cmd/main.go
+
+# Terminal 2: Start the capture client
+go run ./client/cmd/main.go
+```
 
 #### Legacy Monolithic Modes
 ```bash
