@@ -1,62 +1,67 @@
-> **⚠️ DISCLAIMER:** Discord live screensharing was restricted/blocked in Brazil, so I built my own self-hosted, ultra-low latency, native Wayland screen & audio streaming stack.
+> **⚠️ DISCLAIMER:** Discord live screensharing was restricted/blocked in Brazil, so I built my own self-hosted, ultra-low latency, native Wayland & OBS screen & audio streaming stack.
 
-# 🖥️ Wayland Ultra-Low Latency Live Streamer
+# 🖥️ Ultra-Low Latency Live Streaming Stack (Wayland & OBS Studio)
 
-A high-performance, containerized screen and audio streaming solution engineered specifically for Linux **Wayland** desktops (Hyprland, Sway, GNOME, KDE Plasma). Delivers **sub-200ms ultra-low latency** live video with intelligent per-application audio isolation and zero port-forwarding via Cloudflare Tunnels.
+A high-performance, modular screen and audio streaming solution engineered for Linux **Wayland** desktops (Hyprland, Sway, GNOME, KDE Plasma) and **OBS Studio** (Windows & Linux). Delivers **sub-200ms ultra-low latency** live video with intelligent per-application audio isolation and zero port-forwarding via Cloudflare Tunnels.
 
 ---
 
 ## ⚡ Highlights
 
+- **Decoupled Client/Server Architecture**:
+  - **Server (Distribution Hub)**: Lightweight pure Go server (~25MB container) handling stream ingestion, WebSocket fan-out, Pion WebRTC broadcasting, and Cloudflare Tunnels.
+  - **Clients (Producers)**: Supports multiple simultaneous ingest sources:
+    - **Native Linux Wayland Go Client**: Zero-copy DMA-BUF capture, GPU VA-API/NVENC encoding, and PulseAudio voice isolation.
+    - **OBS Studio (Windows & Linux)**: Native **WHIP (WebRTC)** or HTTP streaming with one click.
 - **Ultra-Low Latency (<200ms)**: Stream live screen and game audio with virtually zero perceptible delay using MPEG-TS over WebSocket and WebRTC.
-- **Native Wayland Screen Capture**: Directly interfaces with `xdg-desktop-portal` and PipeWire via D-Bus for zero-overhead hardware capture.
+- **Native Wayland Screen Capture**: Directly interfaces with `xdg-desktop-portal` and PipeWire via D-Bus for zero-overhead hardware capture without VRAM-to-RAM copies.
 - **Smart Audio Router & Voice Isolation**:
   - Automatically isolates desktop and game audio.
   - Blacklists voice chat applications (**Discord, Vesktop, Slack, Zoom, Teams**) so voice call participants do not hear themselves echoing.
-  - Generates continuous silence-clock timestamps to prevent muxer buffer deadlocks when no audio is playing.
+  - **Passive Mirror Mode**: Duplicates headphones directly with 0ms added delay and zero system modifications.
 - **Modern Web Player**:
   - Custom HTML5 player powered by `mpegts.js`.
   - Built-in interactive **volume slider** (0–100%) with volume memory (`localStorage`).
   - One-click mute/unmute and dynamic speaker indicators (`🔊`, `🔉`, `🔈`, `🔇`).
-  - Aggressive buffer synchronization to maintain the live edge without stuttering.
+  - Worker demuxing and tuned latency buffer management.
 - **Global Public Access (Cloudflare Tunnel)**:
-  - Accessible securely over public HTTPS (`wss://`) without exposing open router ports or configuring complex NAT traversal.
-- **Three Modular Streaming Backends**:
-  1. `ws/` **(Default & Recommended)**: WebSocket MPEG-TS streaming with full Cloudflare Tunnel proxying and universal browser support.
-  2. `webrtc/`: Direct P2P WebRTC broadcast powered by Pion Go (<150ms delay).
-  3. `hls/`: Low-Latency HLS (LL-HLS) fallback for maximum compatibility.
+  - Accessible securely over public HTTPS (`wss://`) without exposing your home IP address or open router ports.
+- **Test-Driven Architecture (TDD)**: 100% automated test coverage across shared utilities, client capture modules, server hubs, and end-to-end integration flows.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-[ Wayland Compositor (Hyprland / GNOME / KDE) ]
-                       │
-             xdg-desktop-portal (D-Bus)
-                       │
-                 PipeWire Stream
-                       │
-                       ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   Docker Container                      │
+│                    CLIENT PRODUCERS                     │
 │                                                         │
-│  [PipeWire / PulseAudio] ──► [Go Audio Router & Filter] │
-│                                  │ (Isolate Discord)    │
-│  [GStreamer x264enc] ◄───────────┘                      │
-│           │                                             │
-│      MPEG-TS Muxer (188-byte aligned)                   │
-│           │                                             │
-│      Go WebSocket Hub (Non-blocking per-client pump)    │
-│           │                                             │
-└───────────┼─────────────────────────────────────────────┘
-            │
-            ├──────────────► Local Player (http://localhost:8080)
-            │
-    [Cloudflare Tunnel (cloudflared)]
-            │
-            ▼
-    Public Web Viewers (https://stream.yourdomain.com)
+│  [ Linux Wayland PC ] ──► Hardware VA-API ──┐          │
+│                                             │ (HTTP     │
+│  [ Windows / Linux PC ] ──► OBS Studio ─────┼── Stream  │
+│                             (WHIP WebRTC)   │   Ingest) │
+└─────────────────────────────────────────────┼───────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────┐
+│            SERVER (Distribution Hub / Ingest)           │
+│                                                         │
+│  Ingest Handlers:                                       │
+│  - POST /api/publish   (Chunked MPEG-TS Ingest)         │
+│  - POST /whip          (RFC WebRTC Ingestion for OBS)   │
+│                                                         │
+│  Broadcast Hubs:                                        │
+│  - Go WebSocket Hub    (MPEG-TS fan-out to web players) │
+│  - Pion WebRTC Hub     (Ultra-low latency RTP fan-out)  │
+└─────────────────────────────┬───────────────────────────┘
+                              │
+               ┌──────────────┴──────────────┐
+               ▼                             ▼
+       [ Local Viewers ]           [ Cloudflare Tunnel ]
+   (http://localhost:8080)                   │
+                                             ▼
+                                  [ Public Web Viewers ]
+                             (https://stream.yourdomain.com)
 ```
 
 ---
@@ -68,7 +73,7 @@ A high-performance, containerized screen and audio streaming solution engineered
 - **Linux** with **Wayland** (Hyprland, Sway, GNOME Wayland, KDE Plasma Wayland).
 - **PipeWire** & **WirePlumber** (or `pipewire-media-session`).
 - **Docker** & **Docker Compose**.
-- (Optional) **Cloudflare Tunnel Token** for public sharing.
+- (Optional) **Cloudflare Tunnel Token** for public sharing without IP exposure.
 
 ### 2. Configuration
 
@@ -81,73 +86,77 @@ cp .env.example .env
 Edit `.env` to configure your settings:
 
 ```bash
-# Cloudflare Tunnel Token (optional, for public URL)
+# Cloudflare Tunnel Token (optional, for custom domain; otherwise quick tunnel is used)
 CLOUDFLARE_TUNNEL_TOKEN=your_token_here
 
-# Apps to filter out from stream (prevents echo in Discord calls)
-AUDIO_BLACKLIST=discord,Discord,vesktop,webcord,slack,zoom,teams
+# Stream authentication key (optional; empty = open ingest)
+STREAM_KEY=
 
-# Include microphone (false = only desktop/game audio)
-INCLUDE_MIC=false
+# Audio capture mode:
+# false = Passive headphone mirror (zero touch, recommended)
+# true  = Voice isolation (filters Discord/Slack from stream)
+AUDIO_ROUTING=false
 
-# Video encoder mode:
-# - gpu   : Hardware-accelerated encoding (VA-API for AMD/Intel, NVENC for NVIDIA) [Default & Recommended]
-# - cpu   : CPU software encoding via x264 (fallback or CPU-only)
+# Video encoder mode (gpu = VA-API/NVENC, cpu = libx264)
 ENCODER=gpu
-
-# Video output settings
 FRAMERATE=60
-TARGET_WIDTH=1920
-TARGET_HEIGHT=1080
 VIDEO_BITRATE=6000k
 ```
 
-### 3. Launch Streamer (Choose GPU or CPU)
+---
 
-You can launch using hardware acceleration (**GPU**) or software (**CPU**) directly via CLI flags or your `.env` configuration:
+### 3. Launching the Application
+
+Use the unified [`./run`](file:///home/luigi/streaming/run) script:
 
 ```bash
-# Launch default WebSocket streamer with GPU hardware acceleration
-./run.sh --gpu
+# Launch the full stack (Distribution Server in Docker + local Wayland Client):
+./run
 
-# Launch with CPU-only encoding (software x264)
-./run.sh --cpu
-
-# Run specific backend with GPU or CPU
-./run.sh ws --gpu
-./run.sh webrtc --gpu
-./run.sh hls --cpu
+# With specific options:
+./run --gpu --mirror     # GPU hardware acceleration + passive headphone mirror
+./run --cpu --isolate    # CPU software encoding + voice isolation
 ```
 
 When prompted on your desktop, select the screen or window you want to share.
 
-### 4. Watch the Stream
+---
 
-- **Local Network**: `http://localhost:8080`
-- **Public Domain**: `https://stream.yourdomain.com` (configured in your Cloudflare Zero Trust dashboard)
+### 4. Running Specific Components
+
+#### Run Only the Server (Ideal for OBS Studio or VPS Hosting)
+```bash
+./run server
+```
+* **Server URL**: `http://localhost:8080`
+* **OBS WHIP Ingest**: `http://localhost:8080/whip`
+* **Go Client Ingest**: `http://localhost:8080/api/publish`
+
+#### Run Only the Capture Client
+```bash
+./run client --gpu --mirror
+```
+* Captures your desktop and pushes the stream to `http://localhost:8080/api/publish` (or a remote server set via `SERVER_URL`).
+
+#### Legacy Monolithic Modes
+```bash
+./run legacy-ws        # Original monolithic WebSocket container
+./run legacy-webrtc    # Original monolithic WebRTC container
+```
 
 ---
 
-## 🎛️ Running Specific Streaming Engines
+## 🎥 Streaming from OBS Studio (Windows / Linux)
 
-You can launch any of the three independent streaming implementations with `--gpu` or `--cpu`:
+Because the server provides native **WHIP (WebRTC HTTP Ingestion Protocol)**, OBS Studio can stream directly to your server with **zero custom software required**:
 
-| Engine | Launcher Script | Protocol | Latency | Cloudflare Tunnel Support |
-| :--- | :--- | :--- | :--- | :--- |
-| **WebSocket (Recommended)** | `./run_ws.sh [--gpu\|--cpu]` | MPEG-TS over WS | **~200ms** | ✅ Full Support |
-| **WebRTC** | `./run_webrtc.sh [--gpu\|--cpu]` | WebRTC (Pion) | **~150ms** | Direct / Local / P2P |
-| **Low-Latency HLS** | `./run_hls.sh [--gpu\|--cpu]` | HLS (.m3u8) | **~2-3s** | ✅ Full Support |
-
----
-
-## 🚀 GPU Hardware Acceleration vs CPU
-
-- **GPU Mode (`ENCODER=gpu` / `--gpu`)**:
-  - Uses Linux **VA-API** (`vaapih264enc` / `h264_vaapi`) for AMD Radeon and Intel GPUs, or **NVENC** (`nvh264enc` / `h264_nvenc`) for NVIDIA GPUs.
-  - Zero CPU overhead, preserving all CPU threads for games and high-framerate tasks.
-- **CPU Mode (`ENCODER=cpu` / `--cpu`)**:
-  - Uses `x264enc` (GStreamer) and `libx264` (FFmpeg) configured with `ultrafast` zerolatency profiles.
-  - Universally compatible on any machine without requiring GPU pass-through or render permissions.
+1. Open **OBS Studio**.
+2. Go to **Settings $\to$ Stream**:
+   - **Service**: `WHIP`
+   - **Server**: `http://<your-server-ip>:8080/whip` (or your Cloudflare Tunnel HTTPS URL)
+   - **Bearer Token**: (Leave empty unless `STREAM_KEY` is configured)
+3. Click **Start Streaming**.
+4. Viewers open `http://<your-server-ip>:8080` (or your public tunnel domain) and watch instantly.
 
 ---
 
@@ -161,18 +170,16 @@ You can choose between two audio capture strategies:
 * **Result**: Everything you hear in your headphones is mirrored into the live stream with 0ms added latency.
 
 ```bash
-# Launch with passive mirror mode
-./run.sh --gpu --mirror
+./run --gpu --mirror
 ```
 
 ### 2. Voice Isolation Mode (`--isolate` / `AUDIO_ROUTING=true`)
-* **How it works**: Creates a virtual `stream_sink` and dynamically scans active audio streams every second:
-  - **Games / YouTube / Chrome / Music** $\rightarrow$ Routed into `stream_sink` (streamed to viewers) and looped back to headphones.
+* **How it works**: Creates a virtual `stream_sink` and dynamically scans active audio streams:
+  - **Games / YouTube / Chrome / Music** $\rightarrow$ Linked into `stream_sink` (streamed to viewers).
   - **Discord / Slack / Zoom Voice Calls** $\rightarrow$ Kept strictly on physical headphones (excluded from stream).
 
 ```bash
-# Launch with voice isolation mode
-./run.sh --gpu --isolate
+./run --gpu --isolate
 ```
 
 ---
@@ -180,33 +187,48 @@ You can choose between two audio capture strategies:
 ## 🛠️ Project Structure
 
 ```
-.
-├── README.md               # Project documentation & disclaimer
-├── run.sh                  # Default streamer launcher (runs WebSocket streamer)
-├── run_ws.sh               # WebSocket streamer launcher
-├── run_webrtc.sh           # WebRTC streamer launcher
-├── run_hls.sh              # HLS streamer launcher
-├── .env.example            # Example configuration template
-├── .gitignore              # Git ignore rules for secrets and temp files
+streaming/
 │
-├── ws/                     # [MPEG-TS over WebSocket Streamer]
-│   ├── cmd/streamer/       # Application entry point
+├── client/                               # 📹 CLIENT (Producer / Collector)
+│   ├── cmd/main.go                       # Client CLI entrypoint
 │   ├── pkg/
-│   │   ├── audio/          # PulseAudio / PipeWire router & blacklist filter
-│   │   ├── config/         # Environment variable parser
-│   │   ├── pipeline/       # GStreamer pipeline with silence-clock mixer
-│   │   ├── portal/         # Wayland XDG Desktop Portal D-Bus client
-│   │   └── server/         # Go HTTP & WebSocket Hub (non-blocking pump)
-│   ├── web/                # Web player UI (HTML5 + mpegts.js + volume slider)
-│   └── docker-compose.yml  # Container orchestration & Cloudflare Tunnel
+│   │   ├── portal/                       # Wayland ScreenCast D-Bus client
+│   │   ├── audio/                        # PulseAudio routing & blacklist filter
+│   │   └── pipeline/                     # Zero-copy GStreamer pipeline & HTTP stream sender
+│   └── Dockerfile                        # Client container definition
 │
-├── webrtc/                 # [WebRTC Streamer]
-│   ├── pkg/webrtc/         # Pion WebRTC broadcaster and track injector
-│   └── web/                # WebRTC player with SDP HTTP signaling
+├── server/                               # 🌐 SERVER (Distribution Hub / Ingest)
+│   ├── cmd/main.go                       # Server CLI entrypoint
+│   ├── pkg/
+│   │   ├── http/                         # HTTP router (/health, /ws, /whip, /api/publish)
+│   │   ├── hub/                          # WebSocket MPEG-TS Hub & Pion WebRTC Hub
+│   │   └── ingest/                       # HTTP chunked ingest & OBS WHIP ingest handlers
+│   ├── web/                              # HTML5 low-latency web player (mpegts.js)
+│   ├── Dockerfile                        # Lightweight pure-Go container (~25MB)
+│   └── docker-compose.yml                # Server + Cloudflare Tunnel
 │
-└── hls/                    # [LL-HLS Streamer]
-    ├── nginx.conf          # Low-latency HLS caching & CORS configuration
-    └── web/                # Hls.js web player
+├── utils/                                # 🛠️ SHARED UTILITIES
+│   ├── config/                           # Environment variable parsers
+│   ├── crypto/                           # Token generation & key validation
+│   └── types/                            # StreamInfo & CaptureOptions data models
+│
+├── test/
+│   └── integration/                      # Automated end-to-end integration test
+│
+├── docker-compose.yml                    # Root Docker Compose (Server + Tunnel + Client)
+├── run                                   # Executable launcher
+├── run.sh                                # Main launcher script
+└── .env.example                          # Configuration template
+```
+
+---
+
+## 🧪 Testing
+
+Run the full automated unit and integration test suite:
+
+```bash
+go test -v ./...
 ```
 
 ---
