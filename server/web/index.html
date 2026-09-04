@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Screen Stream (WebSocket Ultra-Low Latency)</title>
+    <!-- Zero Cache Headers -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <script src="mpegts.js"></script>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --accent-color: #58a6ff;
+            --accent-glow: rgba(88, 166, 255, 0.3);
+            --border-color: #30363d;
+            --text-main: #c9d1d9;
+            --text-bright: #f0f6fc;
+            --live-green: #238636;
+            --live-glow: rgba(35, 134, 54, 0.4);
+            --warn-color: #d29922;
+            --error-color: #f85149;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1.5rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1300px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card-bg);
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .title-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .title-wrapper h1 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-bright);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .badge-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: rgba(35, 134, 54, 0.15);
+            color: #3fb950;
+            border: 1px solid rgba(59, 179, 80, 0.4);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            box-shadow: 0 0 10px var(--live-glow);
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #3fb950;
+            animation: pulse 1.5s infinite;
+        }
+
+        .stream-mode-badge {
+            background: rgba(88, 166, 255, 0.1);
+            color: var(--accent-color);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            padding: 0.35rem 0.85rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+            70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
+            100% { transform: scale(0.95); opacity: 0.8; box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
+        }
+
+        .player-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            aspect-ratio: 16 / 9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            display: block;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(13, 17, 23, 0.85);
+            backdrop-filter: blur(4px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1.25rem;
+            z-index: 10;
+            transition: opacity 0.3s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid var(--border-color);
+            border-top: 3px solid var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .unmute-banner {
+            position: absolute;
+            top: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid var(--accent-color);
+            color: var(--text-bright);
+            padding: 0.75rem 1.5rem;
+            border-radius: 30px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            z-index: 20;
+            display: none;
+            align-items: center;
+            gap: 0.6rem;
+            box-shadow: 0 4px 20px rgba(88, 166, 255, 0.4);
+            animation: bounce 2s infinite ease-in-out;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translate(-50%, 0); }
+            50% { transform: translate(-50%, -6px); }
+        }
+
+        .controls-bar {
+            background: var(--card-bg);
+            padding: 0.85rem 1.25rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #161b22;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .volume-control input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 90px;
+            height: 6px;
+            border-radius: 3px;
+            background: #30363d;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .volume-control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .volume-control input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .volume-control input[type="range"]::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            cursor: pointer;
+            border: none;
+        }
+
+        .volume-value {
+            font-size: 0.75rem;
+            color: #8b949e;
+            min-width: 32px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        button {
+            background: #21262d;
+            border: 1px solid var(--border-color);
+            color: var(--text-bright);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background: #30363d;
+            border-color: #8b949e;
+        }
+
+        button.primary {
+            background: #238636;
+            border-color: rgba(240, 246, 252, 0.1);
+        }
+
+        button.primary:hover {
+            background: #2ea043;
+        }
+
+        .latency-indicator {
+            font-size: 0.85rem;
+            color: #8b949e;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .latency-indicator span {
+            color: #3fb950;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="title-wrapper">
+                <h1>🖥️ Live Screen Stream</h1>
+                <div class="badge-live">
+                    <div class="badge-dot"></div>
+                    <span id="statusText">CONNECTING</span>
+                </div>
+            </div>
+            <div class="stream-mode-badge">
+                <span>⚡ WebSocket (Low Latency)</span>
+            </div>
+        </header>
+
+        <div class="player-wrapper" id="videoContainer">
+            <video id="videoElement" autoplay playsinline muted></video>
+
+            <div class="unmute-banner" id="unmuteBanner">
+                <span>🔊 Click here to enable audio</span>
+            </div>
+
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner"></div>
+                <div id="loadingMsg" style="font-size: 1rem; font-weight: 500;">Connecting to WebSocket Stream...</div>
+            </div>
+        </div>
+
+        <div class="controls-bar">
+            <div class="btn-group">
+                <button id="toggleAudioBtn">🔊 Unmute Audio</button>
+                <div class="volume-control">
+                    <span id="volumeIcon" style="cursor:pointer;" title="Mute/Unmute">🔊</span>
+                    <input type="range" id="volumeSlider" min="0" max="1" step="0.02" value="1" title="Volume">
+                    <span id="volumeValue" class="volume-value">100%</span>
+                </div>
+                <button id="reconnectBtn">🔄 Reconnect</button>
+            </div>
+            <div class="latency-indicator">
+                Latency Buffer: <span id="bufferStats">0.15s</span>
+            </div>
+            <div class="btn-group">
+                <button id="fullscreenBtn">⛶ Fullscreen</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const videoContainer = document.getElementById('videoContainer');
+        const statusText = document.getElementById('statusText');
+        const bufferStats = document.getElementById('bufferStats');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingMsg = document.getElementById('loadingMsg');
+        const unmuteBanner = document.getElementById('unmuteBanner');
+        const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+        const volumeSlider = document.getElementById('volumeSlider');
+        const volumeValue = document.getElementById('volumeValue');
+        const volumeIcon = document.getElementById('volumeIcon');
+        const reconnectBtn = document.getElementById('reconnectBtn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+        let player = null;
+
+        // Restore saved volume
+        try {
+            const savedVol = localStorage.getItem('stream_volume');
+            if (savedVol !== null) {
+                const vol = parseFloat(savedVol);
+                video.volume = vol;
+                volumeSlider.value = vol;
+            }
+        } catch(e) {}
+
+        function updateVolumeUI() {
+            if (video.muted || video.volume === 0) {
+                toggleAudioBtn.innerText = '🔊 Unmute Audio';
+                volumeIcon.innerText = '🔇';
+                volumeValue.innerText = '0%';
+            } else {
+                toggleAudioBtn.innerText = '🔇 Mute Audio';
+                const percent = Math.round(video.volume * 100);
+                volumeValue.innerText = `${percent}%`;
+                if (video.volume > 0.5) volumeIcon.innerText = '🔊';
+                else if (video.volume > 0.15) volumeIcon.innerText = '🔉';
+                else volumeIcon.innerText = '🔈';
+            }
+        }
+
+        function startPlayer() {
+            if (player) {
+                try {
+                    player.pause();
+                    player.unload();
+                    player.detachMediaElement();
+                    player.destroy();
+                } catch(e) {}
+                player = null;
+            }
+
+            loadingOverlay.style.display = 'flex';
+            loadingMsg.innerText = 'Connecting to Stream via WebSocket...';
+            statusText.innerText = 'CONNECTING';
+
+            if (!mpegts.isSupported()) {
+                loadingMsg.innerText = 'Error: MediaSource Extensions (MSE) not supported in this browser.';
+                return;
+            }
+
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/ws`;
+
+            if (player) {
+                try {
+                    player.pause();
+                    player.unload();
+                    player.detachMediaElement();
+                    player.destroy();
+                } catch (e) {}
+                player = null;
+            }
+
+            player = mpegts.createPlayer({
+                type: 'mpegts', // MPEG-TS over WebSocket
+                isLive: true,
+                url: wsUrl
+            }, {
+                enableWorker: true,
+                enableStashBuffer: true,
+                stashInitialSize: 384,
+                lazyLoad: false,
+                liveBufferLatencyChasing: true,
+                liveBufferLatencyMaxLatency: 2.5,
+                liveBufferLatencyMinRemain: 0.6,
+                autoCleanupSourceBuffer: true,
+                autoCleanupMaxBackwardDuration: 3,
+                autoCleanupMinBackwardDuration: 1
+            });
+
+            window.player = player;
+
+            player.attachMediaElement(video);
+            player.load();
+            player.play().catch(e => {
+                console.log("Autoplay caught:", e);
+            });
+
+            player.on(mpegts.Events.ERROR, (errorType, errorDetail, errorInfo) => {
+                console.error("MPEGTS Error:", errorType, errorDetail, errorInfo);
+                if (errorType === mpegts.ErrorTypes.NETWORK_ERROR) {
+                    statusText.innerText = 'RECONNECTING';
+                    loadingMsg.innerText = `Network Error: ${errorDetail}. Reconnecting...`;
+                    loadingOverlay.style.display = 'flex';
+                    setTimeout(startPlayer, 2000);
+                }
+            });
+
+            player.on(mpegts.Events.METADATA_ARRIVED, () => {
+                console.log("Stream Metadata arrived");
+                loadingOverlay.style.display = 'none';
+                statusText.innerText = 'LIVE (WebSocket)';
+            });
+
+            player.on(mpegts.Events.MEDIA_INFO, (mediaInfo) => {
+                console.log("Media Info:", mediaInfo);
+                loadingOverlay.style.display = 'none';
+                statusText.innerText = 'LIVE (WebSocket)';
+            });
+        }
+
+        // Monitoring buffer and playing state
+        video.addEventListener('playing', () => {
+            loadingOverlay.style.display = 'none';
+            statusText.innerText = 'LIVE (WebSocket)';
+            if (video.muted) {
+                unmuteBanner.style.display = 'flex';
+            }
+            updateVolumeUI();
+        });
+
+        setInterval(() => {
+            if (video && video.buffered && video.buffered.length > 0) {
+                const end = video.buffered.end(video.buffered.length - 1);
+                const current = video.currentTime;
+                const bufferLen = Math.max(0, end - current);
+                bufferStats.innerText = `${bufferLen.toFixed(2)}s`;
+            }
+        }, 500);
+
+        function enableAudio() {
+            video.muted = false;
+            if (video.volume === 0) {
+                video.volume = 1.0;
+                volumeSlider.value = 1.0;
+            }
+            video.play().then(() => {
+                unmuteBanner.style.display = 'none';
+                updateVolumeUI();
+            }).catch(() => {
+                updateVolumeUI();
+            });
+        }
+
+        function toggleAudio() {
+            if (video.muted || video.volume === 0) {
+                if (video.volume === 0) {
+                    video.volume = 1.0;
+                    volumeSlider.value = 1.0;
+                }
+                video.muted = false;
+                unmuteBanner.style.display = 'none';
+            } else {
+                video.muted = true;
+            }
+            updateVolumeUI();
+        }
+
+        volumeSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            video.volume = val;
+            if (val > 0) {
+                video.muted = false;
+                unmuteBanner.style.display = 'none';
+            } else {
+                video.muted = true;
+            }
+            updateVolumeUI();
+            try { localStorage.setItem('stream_volume', val); } catch(err) {}
+        });
+
+        unmuteBanner.addEventListener('click', enableAudio);
+        toggleAudioBtn.addEventListener('click', toggleAudio);
+        volumeIcon.addEventListener('click', toggleAudio);
+        reconnectBtn.addEventListener('click', startPlayer);
+
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                videoContainer.requestFullscreen().catch(err => {
+                    alert(`Fullscreen error: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Start playback on load
+        window.addEventListener('load', () => {
+            startPlayer();
+            updateVolumeUI();
+        });
+    </script>
+</body>
+</html>
