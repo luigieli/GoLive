@@ -1,0 +1,69 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: stream-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+      - "50000-50050:50000-50050/udp"
+    environment:
+      - PORT=8080
+      - STREAM_KEY=${STREAM_KEY:-}
+      - STUN_SERVERS=${STUN_SERVERS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
+      - NAT_1TO1_IPS=${NAT_1TO1_IPS:-}
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: stream-cloudflared
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ${CLOUDFLARE_TUNNEL_COMMAND:-tunnel --no-autoupdate --url http://server:8080}
+    depends_on:
+      - server
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: stream-client
+    profiles:
+      - client
+      - all
+    env_file:
+      - .env
+    user: "1000:1000"
+    ipc: host
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "983"
+      - "984"
+      - "987"
+      - "988"
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      - PIPEWIRE_RUNTIME_DIR=/run/user/1000
+      - LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-radeonsi}
+      - SERVER_URL=http://server:8080/api/publish
+      - STREAM_KEY=${STREAM_KEY:-}
+      - FRAMERATE=${FRAMERATE:-60}
+      - VIDEO_BITRATE=${VIDEO_BITRATE:-6000k}
+      - ENCODER=${ENCODER:-gpu}
+      - CPU_THREADS=${CPU_THREADS:-4}
+      - AUDIO_ROUTING=${AUDIO_ROUTING:-true}
+      - AUDIO_SOURCE=${AUDIO_SOURCE:-stream_sink.monitor}
+      - AUDIO_BLACKLIST=${AUDIO_BLACKLIST:-discord,Discord,vesktop,webcord,slack,zoom,teams,webrtc,WEBRTC}
+      - INCLUDE_MIC=${INCLUDE_MIC:-false}
+    volumes:
+      - /run/user/1000/bus:/run/user/1000/bus
+      - /run/user/1000/pipewire-0:/run/user/1000/pipewire-0
+      - /run/user/1000/pulse:/run/user/1000/pulse
+    depends_on:
+      - server

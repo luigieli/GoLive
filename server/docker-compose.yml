@@ -1,0 +1,27 @@
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    container_name: stream-server
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - "8080:8080"
+      - "50000-50050:50000-50050/udp"
+    environment:
+      - PORT=8080
+      - STREAM_KEY=${STREAM_KEY:-}
+      - STUN_SERVERS=${STUN_SERVERS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
+      - NAT_1TO1_IPS=${NAT_1TO1_IPS:-}
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: stream-cloudflared
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    command: ${CLOUDFLARE_TUNNEL_COMMAND:-tunnel --no-autoupdate --url http://server:8080}
+    depends_on:
+      - server

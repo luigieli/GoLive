@@ -1,20 +1,34 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MODE="ws"
+# Load .env if present
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
+ACTION="all"
 ENCODER_FLAG=""
 
 for arg in "$@"; do
     case "$arg" in
-        ws|websocket)
-            MODE="ws"
+        all)
+            ACTION="all"
             ;;
-        webrtc)
-            MODE="webrtc"
+        server)
+            ACTION="server"
             ;;
-        hls)
-            MODE="hls"
+        client)
+            ACTION="client"
+            ;;
+        legacy-ws|ws)
+            ACTION="legacy-ws"
+            ;;
+        legacy-webrtc|webrtc)
+            ACTION="legacy-webrtc"
             ;;
         --cpu|-cpu|-c)
             ENCODER_FLAG="cpu"
@@ -37,37 +51,28 @@ for arg in "$@"; do
             export AUDIO_SOURCE="stream_sink.monitor"
             ;;
         --help|-h)
-            echo "Wayland Screen & Audio Live Streamer"
+            echo "⚡ Go Wayland & OBS Streaming Hub"
             echo ""
-            echo "Usage: ./run [MODE] [OPTIONS]"
+            echo "Usage: ./run.sh [COMMAND] [OPTIONS]"
             echo ""
-            echo "Modes:"
-            echo "  ws, websocket    Ultra-low latency WebSocket streaming (<200ms) [Default]"
-            echo "  webrtc           WebRTC direct P2P / UDP streaming (<150ms)"
-            echo "  hls              Low-latency HTTP Live Streaming"
+            echo "Commands:"
+            echo "  all              Launch Server (Docker + Tunnel) and local Capture Client [Default]"
+            echo "  server           Launch only the Distribution Server + Cloudflare Tunnel in Docker"
+            echo "  client           Launch only the local Wayland Capture Client"
+            echo "  legacy-ws        Run monolithic WebSocket streamer container"
+            echo "  legacy-webrtc    Run monolithic WebRTC streamer container"
             echo ""
-            echo "Encoder Options:"
+            echo "Options:"
             echo "  --gpu, -g        Hardware accelerated encoding (VA-API / NVENC) [Default]"
-            echo "  --cpu, -c        CPU software encoding (libx264 / x264enc)"
-            echo "  --vaapi          Force VA-API GPU encoding (AMD Radeon / Intel)"
-            echo "  --nvenc          Force NVIDIA NVENC GPU encoding"
-            echo ""
-            echo "Audio Options:"
-            echo "  --mirror, -m     Passive mirror mode: Duplicates all headphone audio directly without modifying sinks/apps"
-            echo "  --isolate, -i    Voice isolation mode: Uses virtual sink + blacklist to filter out Discord/voice calls"
+            echo "  --cpu, -c        CPU software encoding (libx264)"
+            echo "  --mirror, -m     Passive headphone mirror (direct, untouched)"
+            echo "  --isolate, -i    Voice isolation (filters Discord/Slack from stream)"
             echo ""
             echo "Examples:"
-            echo "  ./run --gpu --mirror   # GPU stream with 100% untouched headphone audio mirroring"
-            echo "  ./run --gpu            # Launch WebSocket streamer with GPU"
-            echo "  ./run --cpu            # Launch WebSocket streamer with CPU only"
-            echo "  ./run webrtc --mirror  # WebRTC streamer with passive audio mirroring"
-            echo "  ./run hls --cpu        # Launch HLS streamer with CPU only"
+            echo "  ./run.sh                  # Launch full application (Server + Client) with GPU & mirror"
+            echo "  ./run.sh server           # Run server hub for OBS Studio streaming"
+            echo "  ./run.sh client --mirror  # Run local capture client connecting to server"
             exit 0
-            ;;
-        *)
-            echo "Unknown argument: $arg"
-            echo "Run './run --help' for usage instructions."
-            exit 1
             ;;
     esac
 done
@@ -76,14 +81,83 @@ if [ -n "$ENCODER_FLAG" ]; then
     export ENCODER="$ENCODER_FLAG"
 fi
 
-case "$MODE" in
-    ws)
+export ENCODER="${ENCODER:-gpu}"
+export AUDIO_ROUTING="${AUDIO_ROUTING:-false}"
+export AUDIO_SOURCE="${AUDIO_SOURCE:-mirror}"
+
+TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "your_cloudflare_tunnel_token_here" ] && [ "$TOKEN" != "your_token_here" ]; then
+    export CLOUDFLARE_TUNNEL_COMMAND="tunnel --no-autoupdate run --token ${TOKEN}"
+    TUNNEL_MODE="Custom Cloudflare Token Tunnel"
+else
+    export CLOUDFLARE_TUNNEL_COMMAND="tunnel --no-autoupdate --url http://server:8080"
+    TUNNEL_MODE="Automatic Quick Tunnel (TryCloudflare - Free / No Account Needed)"
+fi
+
+echo "======================================================="
+echo "   ⚡ Go Wayland Streaming Architecture"
+echo "======================================================="
+echo "--> Action        : ${ACTION}"
+echo "--> Video Encoder : ${ENCODER}"
+if [ "$AUDIO_ROUTING" = "false" ]; then
+    echo "--> Audio Mode    : Passive Headphone Mirror"
+else
+    echo "--> Audio Mode    : Voice Isolation (Discord filtered)"
+fi
+echo "--> Tunnel Mode   : ${TUNNEL_MODE}"
+echo "======================================================="
+echo ""
+
+cleanup() {
+    echo -e "\n[*] Stopping streaming services..."
+    cd "$SCRIPT_DIR"
+    docker compose down 2>/dev/null || true
+    exit 0
+}
+trap cleanup INT TERM
+
+case "$ACTION" in
+    all)
+        echo "[1/2] Starting Stream Server & Cloudflare Tunnel in Docker..."
+        docker compose up -d --build server tunnel
+        echo "--> Server is live at http://localhost:8080"
+        echo "--> OBS WHIP Ingest : http://localhost:8080/whip"
+        echo "--> Cloudflare logs :"
+        docker compose logs -f tunnel &
+        LOG_PID=$!
+
+        sleep 2
+        echo ""
+        echo "[2/2] Starting local Wayland Capture Client..."
+        export SERVER_URL="http://localhost:8080/api/publish"
+        go run "$SCRIPT_DIR/client/cmd/main.go" || true
+
+        kill $LOG_PID 2>/dev/null || true
+        cleanup
+        ;;
+
+    server)
+        echo "[*] Starting Stream Server & Cloudflare Tunnel..."
+        echo "--> Server URL       : http://localhost:8080"
+        echo "--> OBS WHIP Ingest  : http://localhost:8080/whip"
+        echo "--> Client Ingest    : http://localhost:8080/api/publish"
+        echo ""
+        docker compose up --build server tunnel
+        ;;
+
+    client)
+        echo "[*] Starting local Wayland Capture Client..."
+        export SERVER_URL="${SERVER_URL:-http://localhost:8080/api/publish}"
+        go run "$SCRIPT_DIR/client/cmd/main.go"
+        ;;
+
+    legacy-ws)
+        echo "[*] Launching legacy monolithic WebSocket streamer..."
         exec "$SCRIPT_DIR/ws/run.sh"
         ;;
-    webrtc)
+
+    legacy-webrtc)
+        echo "[*] Launching legacy monolithic WebRTC streamer..."
         exec "$SCRIPT_DIR/webrtc/run.sh"
-        ;;
-    hls)
-        exec "$SCRIPT_DIR/hls/run.sh"
         ;;
 esac
